@@ -77,7 +77,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         clipData = android.content.ClipData.newUri(context.contentResolver, "media", uri)
     }
 
-    // 3. SEND intent (vital for video editors & Google Photos video editing which don't register ACTION_EDIT)
+    // 3. SEND intent (vital for photo/video markup tools like iMarkup, Google Photos, CapCut)
     val sendIntent = Intent(Intent.ACTION_SEND).apply {
         type = mimeType
         putExtra(Intent.EXTRA_STREAM, uri)
@@ -85,7 +85,15 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
 
-    // 4. Custom camera editor action (com.android.camera.action.EDITOR)
+    // 4. Generic SEND intent with wildcard MIME
+    val genericSendIntent = Intent(Intent.ACTION_SEND).apply {
+        type = wildcardMime
+        putExtra(Intent.EXTRA_STREAM, uri)
+        clipData = android.content.ClipData.newUri(context.contentResolver, "media", uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+
+    // 5. Custom camera editor action (com.android.camera.action.EDITOR)
     val cameraEditIntent = Intent("com.android.camera.action.EDITOR").apply {
         setDataAndType(uri, mimeType)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
@@ -102,6 +110,8 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         .filter { it.activityInfo.packageName != context.packageName }
     val sendMatches = runCatching { pm.queryIntentActivities(sendIntent, 0) }.getOrDefault(emptyList())
         .filter { it.activityInfo.packageName != context.packageName }
+    val genericSendMatches = runCatching { pm.queryIntentActivities(genericSendIntent, 0) }.getOrDefault(emptyList())
+        .filter { it.activityInfo.packageName != context.packageName }
 
     val chooserTitle = if (image.isVideo) {
         context.getString(R.string.edit_video_with_external_title)
@@ -113,16 +123,19 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
     val baseIntent = when {
         editMatches.isNotEmpty() -> editIntent
         genericEditMatches.isNotEmpty() -> genericEditIntent
-        cameraMatches.isNotEmpty() -> cameraEditIntent
         sendMatches.isNotEmpty() -> sendIntent
-        else -> editIntent
+        genericSendMatches.isNotEmpty() -> genericSendIntent
+        cameraMatches.isNotEmpty() -> cameraEditIntent
+        else -> if (image.isVideo) sendIntent else editIntent
     }
 
     // Extra initial intents to present other editing apps
     val extraIntents = mutableListOf<Intent>()
-    if (baseIntent != editIntent && editMatches.isNotEmpty()) extraIntents.add(editIntent)
+    if (baseIntent != editIntent) extraIntents.add(editIntent)
+    if (baseIntent != sendIntent) extraIntents.add(sendIntent)
+    if (baseIntent != genericEditIntent) extraIntents.add(genericEditIntent)
+    if (baseIntent != genericSendIntent) extraIntents.add(genericSendIntent)
     if (baseIntent != cameraEditIntent && cameraMatches.isNotEmpty()) extraIntents.add(cameraEditIntent)
-    if (image.isVideo && baseIntent != sendIntent && sendMatches.isNotEmpty()) extraIntents.add(sendIntent)
 
     val chooserIntent = Intent.createChooser(baseIntent, chooserTitle).apply {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -131,20 +144,19 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         }
     }
 
-    val hasAnyApp = editMatches.isNotEmpty() || genericEditMatches.isNotEmpty() || cameraMatches.isNotEmpty() || sendMatches.isNotEmpty()
-    if (hasAnyApp) {
-        val launched = runCatching {
-            context.startActivity(chooserIntent)
+    val launched = runCatching {
+        context.startActivity(chooserIntent)
+        true
+    }.getOrElse {
+        runCatching {
+            context.startActivity(Intent.createChooser(sendIntent, chooserTitle).apply {
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            })
             true
         }.getOrDefault(false)
-        if (!launched) {
-            android.widget.Toast.makeText(
-                context,
-                context.getString(R.string.no_external_editor_found),
-                android.widget.Toast.LENGTH_SHORT
-            ).show()
-        }
-    } else {
+    }
+
+    if (!launched) {
         android.widget.Toast.makeText(
             context,
             context.getString(R.string.no_external_editor_found),

@@ -893,6 +893,15 @@ fun SettingsScreen(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
                     SettingsSwitchRow(
+                        title = stringResource(R.string.settings_video_double_tap_zoom_title),
+                        subtitle = stringResource(R.string.settings_video_double_tap_zoom_desc),
+                        checked = settings.videoDoubleTapToZoom,
+                        onCheckedChange = { preferences.setVideoDoubleTapToZoom(it) }
+                    )
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                    SettingsSwitchRow(
                         title = stringResource(R.string.settings_show_user_comments_title),
                         subtitle = stringResource(R.string.settings_show_user_comments_desc),
                         checked = settings.showViewerUserComments,

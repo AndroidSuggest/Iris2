@@ -85,6 +85,7 @@ data class SettingsState(
     val showAlbumCount: Boolean = true,
     val autoPlayVideo: Boolean = true,
     val loopVideo: Boolean = true,
+    val videoDoubleTapToZoom: Boolean = false,
     val showViewerUserComments: Boolean = true,
     val showFilmstrip: Boolean = true,
     val dismissedFilmstripTip: Boolean = false,
@@ -144,6 +145,7 @@ class SettingsPreferences(context: Context) {
     fun setShowAlbumCount(show: Boolean) = update { copy(showAlbumCount = show) }
     fun setAutoPlayVideo(autoPlay: Boolean) = update { copy(autoPlayVideo = autoPlay) }
     fun setLoopVideo(loop: Boolean) = update { copy(loopVideo = loop) }
+    fun setVideoDoubleTapToZoom(enabled: Boolean) = update { copy(videoDoubleTapToZoom = enabled) }
     fun setShowViewerUserComments(show: Boolean) = update { copy(showViewerUserComments = show) }
     fun setShowFilmstrip(show: Boolean) = update { copy(showFilmstrip = show) }
     fun setDismissedFilmstripTip(dismissed: Boolean) = update { copy(dismissedFilmstripTip = dismissed) }
@@ -227,6 +229,7 @@ class SettingsPreferences(context: Context) {
             showAlbumCount = prefs.getBoolean("show_album_count", true),
             autoPlayVideo = prefs.getBoolean("auto_play_video", true),
             loopVideo = prefs.getBoolean("loop_video", true),
+            videoDoubleTapToZoom = prefs.getBoolean("video_double_tap_to_zoom", false),
             showViewerUserComments = prefs.getBoolean("show_viewer_user_comments", true),
             showFilmstrip = prefs.getBoolean("show_filmstrip", true),
             dismissedFilmstripTip = prefs.getBoolean("dismissed_filmstrip_tip", false),
@@ -272,6 +275,7 @@ class SettingsPreferences(context: Context) {
             .putBoolean("show_album_count", state.showAlbumCount)
             .putBoolean("auto_play_video", state.autoPlayVideo)
             .putBoolean("loop_video", state.loopVideo)
+            .putBoolean("video_double_tap_to_zoom", state.videoDoubleTapToZoom)
             .putBoolean("show_viewer_user_comments", state.showViewerUserComments)
             .putBoolean("show_filmstrip", state.showFilmstrip)
             .putBoolean("dismissed_filmstrip_tip", state.dismissedFilmstripTip)

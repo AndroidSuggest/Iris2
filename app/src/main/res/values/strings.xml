@@ -373,6 +373,8 @@
     <string name="settings_autoplay_video_desc">Automatically start playback when opening videos in the viewer</string>
     <string name="settings_loop_video_title">Loop videos</string>
     <string name="settings_loop_video_desc">Repeat video playback continuously</string>
+    <string name="settings_video_double_tap_zoom_title">Double-tap to zoom video</string>
+    <string name="settings_video_double_tap_zoom_desc">Double-tap center to zoom video instead of play/pause</string>
     <string name="settings_show_user_comments_title">Show comments overlay</string>
     <string name="settings_show_user_comments_desc">Display embedded user comments and notes directly on photos in the viewer</string>
     <string name="settings_show_filmstrip_title">Thumbnail filmstrip</string>
@@ -581,4 +583,12 @@
     <string name="toast_moved_to_album_multiple">Moved %1$d items to %2$s</string>
     <string name="toast_copied_to_album_single">Copied item to %1$s</string>
     <string name="toast_copied_to_album_multiple">Copied %1$d items to %2$s</string>
+
+    <!-- File Rename & Playback -->
+    <string name="action_rename">Rename</string>
+    <string name="rename_file_title">Rename file</string>
+    <string name="rename_file_hint">File name</string>
+    <string name="toast_rename_success">Renamed to %1$s</string>
+    <string name="toast_rename_failed">Could not rename file</string>
+    <string name="action_repeat">Repeat</string>
 </resources>

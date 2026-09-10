@@ -59,6 +59,14 @@ object ThumbnailCache {
         return null
     }
 
+    fun remove(id: Long) {
+        cache.remove(id)
+        for (bucket in listOf(320, 180, 512, 768, 256)) {
+            val key = (id shl 16) xor (bucket.toLong() and 0xFFFFL)
+            cache.remove(key)
+        }
+    }
+
     fun clear() {
         cache.evictAll()
     }

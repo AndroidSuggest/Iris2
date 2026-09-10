@@ -53,6 +53,8 @@ import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.outlined.Repeat
 import androidx.compose.material.icons.outlined.ScreenRotation
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -75,6 +77,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.isSpecified
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -106,13 +109,18 @@ fun VideoPage(
     controlsVisible: Boolean,
     autoPlay: Boolean = true,
     loop: Boolean = true,
+    doubleTapToZoom: Boolean = false,
     onTap: () -> Unit,
     onSwipeUp: () -> Unit = {},
+    onSwipeDown: () -> Unit = {},
+    onDismissDrag: (Float) -> Unit = {},
+    onDismissRelease: (Float) -> Unit = {},
     onZoomChanged: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     var playing by remember { mutableStateOf(false) }
     var isMuted by remember { mutableStateOf(engine.player.volume == 0f) }
+    var isLooping by remember(media.id, loop) { mutableStateOf(engine.player.repeatMode == Player.REPEAT_MODE_ONE || loop) }
     var muteFeedbackEvent by remember { mutableStateOf<Pair<Boolean, Long>?>(null) }
     var lastMuteFeedback by remember { mutableStateOf<Boolean?>(null) }
     var playPauseFeedbackEvent by remember { mutableStateOf<Pair<Boolean, Long>?>(null) }
@@ -266,10 +274,29 @@ fun VideoPage(
                                 gestureFeedback = "+10"
                             }
                             else -> {
-                                val nextPlaying = !engine.player.isPlaying
-                                if (engine.player.isPlaying) engine.player.pause() else engine.player.play()
-                                lastPlayPauseFeedback = nextPlaying
-                                playPauseFeedbackEvent = nextPlaying to SystemClock.uptimeMillis()
+                                if (doubleTapToZoom) {
+                                    if (scale > 1.05f) {
+                                        scale = 1f
+                                        offset = Offset.Zero
+                                        onZoomChanged(false)
+                                    } else {
+                                        val containerAspect = size.width.toFloat() / size.height.coerceAtLeast(1)
+                                        val fillScale = if (displayAspect > containerAspect) {
+                                            (size.height.toFloat() * displayAspect) / size.width.toFloat()
+                                        } else {
+                                            (size.width.toFloat() / displayAspect) / size.height.toFloat()
+                                        }
+                                        val targetZoom = if (fillScale in 1.15f..4.0f) fillScale else 2.5f
+                                        scale = targetZoom
+                                        offset = clamp(Offset.Zero, targetZoom)
+                                        onZoomChanged(true)
+                                    }
+                                } else {
+                                    val nextPlaying = !engine.player.isPlaying
+                                    if (engine.player.isPlaying) engine.player.pause() else engine.player.play()
+                                    lastPlayPauseFeedback = nextPlaying
+                                    playPauseFeedbackEvent = nextPlaying to SystemClock.uptimeMillis()
+                                }
                             }
                         }
                     },
@@ -304,10 +331,18 @@ fun VideoPage(
                 var totalDragY = 0f
                 var totalDragX = 0f
                 var isSwipeUpDetected = false
+                var isDismissDragging = false
+                var lastDragTime = SystemClock.uptimeMillis()
+                var lastDragY = 0f
+                var releaseVelocityY = 0f
                 do {
                     val event = awaitPointerEvent()
                     val pointers = event.changes.count { it.pressed }
                     if (pointers >= 2 || (pointers == 1 && scale > 1f)) {
+                        if (isDismissDragging) {
+                            isDismissDragging = false
+                            onDismissRelease(0f)
+                        }
                         val zoomChange = event.calculateZoom()
                         val panChange = event.calculatePan()
                         val validZoom = if (!zoomChange.isNaN() && zoomChange > 0f) zoomChange else 1f
@@ -337,13 +372,30 @@ fun VideoPage(
                         val panChange = event.calculatePan()
                         totalDragY += panChange.y
                         totalDragX += panChange.x
-                        if (!isSwipeUpDetected && totalDragY < -75f && kotlin.math.abs(totalDragY) > kotlin.math.abs(totalDragX) * 1.5f) {
+                        val now = SystemClock.uptimeMillis()
+                        val dt = (now - lastDragTime).coerceAtLeast(1)
+                        releaseVelocityY = (totalDragY - lastDragY) / (dt / 1000f)
+                        lastDragTime = now
+                        lastDragY = totalDragY
+
+                        if (!isSwipeUpDetected && !isDismissDragging && totalDragY < -75f && kotlin.math.abs(totalDragY) > kotlin.math.abs(totalDragX) * 1.5f) {
                             isSwipeUpDetected = true
                             event.changes.forEach { it.consume() }
                             onSwipeUp()
+                        } else if (!isSwipeUpDetected) {
+                            if (!isDismissDragging && totalDragY > 15f && totalDragY > kotlin.math.abs(totalDragX) * 1.3f) {
+                                isDismissDragging = true
+                            }
+                            if (isDismissDragging) {
+                                event.changes.forEach { it.consume() }
+                                onDismissDrag(panChange.y)
+                            }
                         }
                     }
                 } while (event.changes.any { it.pressed })
+                if (isDismissDragging) {
+                    onDismissRelease(releaseVelocityY)
+                }
             } }
     ) {
         Box(
@@ -476,7 +528,12 @@ fun VideoPage(
           enter = fadeIn(tween(180)) + slideInVertically(tween(220)) { it / 5 },
           exit = fadeOut(tween(140)) + slideOutVertically(tween(180)) { it / 5 },
         ) {
-        BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.85f)))),
+            contentAlignment = Alignment.BottomCenter
+        ) {
         val compactLandscape = maxHeight < 500.dp
         Column(
             modifier = Modifier.fillMaxWidth().widthIn(max = 720.dp).padding(horizontal = 24.dp)
@@ -521,6 +578,18 @@ fun VideoPage(
                             tint = Color.White
                         )
                     }
+                }
+                IconButton(onClick = {
+                    val nextLoop = !isLooping
+                    isLooping = nextLoop
+                    engine.player.repeatMode = if (nextLoop) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                    gestureFeedback = if (nextLoop) "Loop: On" else "Loop: Off"
+                }) {
+                    Icon(
+                        imageVector = if (isLooping) Icons.Filled.RepeatOne else Icons.Outlined.Repeat,
+                        contentDescription = stringResource(R.string.action_repeat),
+                        tint = if (isLooping) MaterialTheme.colorScheme.primary else Color.White
+                    )
                 }
                 IconButton(onClick = { if (engine.player.isPlaying) engine.player.pause() else engine.player.play() }) {
                     AnimatedContent(

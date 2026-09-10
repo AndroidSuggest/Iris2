@@ -46,6 +46,10 @@
             <data android:mimeType="video/*" />
         </intent>
         <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="*/*" />
+        </intent>
+        <intent>
             <action android:name="com.android.camera.action.EDITOR" />
             <data android:mimeType="*/*" />
         </intent>
@@ -56,6 +60,7 @@
     </queries>
 
     <application
+        android:name=".IrisApplication"
         android:allowBackup="true"
         android:appCategory="image"
         android:icon="@mipmap/ic_launcher"

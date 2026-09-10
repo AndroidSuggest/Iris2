@@ -13,6 +13,7 @@ import com.iris.gallery.data.TrashRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import com.iris.gallery.data.DuplicateDetector
@@ -113,7 +114,21 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     suspend fun moveMediaToAlbum(mediaList: List<MediaImage>, targetDir: File, targetAlbumName: String): AlbumOperationResult {
         val result = albumRepository.moveMedia(mediaList, targetDir, targetAlbumName)
-        refresh()
+        if (result.successCount > 0) {
+            val movedOldIds = mediaList.map { it.id }.toSet()
+            val movedOldPaths = mediaList.map { it.path }.toSet()
+            mediaList.forEach { item ->
+                ThumbnailCache.remove(item.id)
+            }
+            repository.markMovedOrDeleted(movedOldIds, movedOldPaths)
+            val currentImages = _uiState.value.images
+            val remainingImages = currentImages.filterNot { it.id in movedOldIds || it.path in movedOldPaths }
+            val updatedImages = (remainingImages + result.movedMedia).sortedWith(
+                compareByDescending<MediaImage> { it.dateTaken }.thenByDescending { it.id }
+            )
+            _uiState.value = _uiState.value.copy(images = updatedImages)
+        }
+        refresh(showLoading = false)
         return result
     }
 
@@ -171,6 +186,22 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             }
         }
         contentObserver = null
+    }
+
+    fun renameMedia(item: MediaImage, newName: String, onResult: (MediaImage?) -> Unit = {}) {
+        viewModelScope.launch {
+            val updated = repository.renameMedia(item, newName)
+            if (updated != null) {
+                _uiState.update { state ->
+                    state.copy(
+                        images = state.images.map { if (it.id == item.id) updated else it }
+                    )
+                }
+                ThumbnailCache.remove(item.id)
+                refresh(showLoading = false)
+            }
+            onResult(updated)
+        }
     }
 
     fun refresh(showLoading: Boolean = true) {

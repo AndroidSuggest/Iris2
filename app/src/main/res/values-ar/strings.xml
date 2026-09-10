@@ -299,6 +299,8 @@
     <string name="settings_autoplay_video_desc">بدء التشغيل فور فتح الفيديو في العارض</string>
     <string name="settings_loop_video_title">تكرار تشغيل الفيديو</string>
     <string name="settings_loop_video_desc">إعادة تشغيل مقاطع الفيديو بشكل مستمر</string>
+    <string name="settings_video_double_tap_zoom_title">النقر المزدوج لتكبير الفيديو</string>
+    <string name="settings_video_double_tap_zoom_desc">النقر المزدوج في المنتصف لتكبير الفيديو بدلاً من التشغيل أو الإيقاف المؤقت</string>
     <string name="settings_zoom_scale_title">مستوى التكبير بالنقر المزدوج</string>
 
     <string name="settings_section_behavior">السلوك والأمان</string>

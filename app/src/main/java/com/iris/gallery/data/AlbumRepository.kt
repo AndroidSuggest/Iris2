@@ -58,31 +58,57 @@ class AlbumRepository(private val context: Context) {
             }
 
             if (!done) {
-                var copied = false
+                // 1. Try atomic rename first if source file exists
                 if (srcFile != null && srcFile.exists()) {
-                    copied = runCatching {
-                        srcFile.copyTo(destFile, overwrite = true).exists() && destFile.length() > 0
+                    done = runCatching {
+                        srcFile.renameTo(destFile)
                     }.getOrDefault(false)
+                    if (done) {
+                        deleteSourceMediaStoreRow(item)
+                    }
                 }
-                if (!copied) {
-                    copied = runCatching {
-                        context.contentResolver.openInputStream(item.uri)?.use { input ->
-                            FileOutputStream(destFile).use { output ->
-                                input.copyTo(output)
+
+                // 2. Fallback to copy and delete if rename was not possible
+                if (!done) {
+                    var copied = false
+                    if (srcFile != null && srcFile.exists()) {
+                        copied = runCatching {
+                            srcFile.copyTo(destFile, overwrite = true).exists() && destFile.length() > 0
+                        }.getOrDefault(false)
+                    }
+                    if (!copied) {
+                        copied = runCatching {
+                            context.contentResolver.openInputStream(item.uri)?.use { input ->
+                                FileOutputStream(destFile).use { output ->
+                                    input.copyTo(output)
+                                }
                             }
+                            destFile.exists() && destFile.length() > 0
+                        }.getOrDefault(false)
+                    }
+                    if (copied) {
+                        val deleted = deleteSourceMedia(item)
+                        if (deleted || (srcFile != null && !srcFile.exists())) {
+                            done = true
+                        } else {
+                            // If source file still exists, try direct delete
+                            done = if (srcFile != null) runCatching { srcFile.delete() }.getOrDefault(false) else true
                         }
-                        destFile.exists() && destFile.length() > 0
-                    }.getOrDefault(false)
-                }
-                if (copied) {
-                    deleteSourceMedia(item)
-                    done = true
+                    }
                 }
             }
 
             if (done) {
                 success++
-                moved.add(item)
+                val targetBucketId = targetDir.absolutePath.lowercase(java.util.Locale.ROOT).hashCode().toLong()
+                val newMedia = item.copy(
+                    path = destFile.absolutePath,
+                    name = destFile.name,
+                    uri = android.net.Uri.fromFile(destFile),
+                    bucketId = targetBucketId,
+                    bucketName = targetAlbumName
+                )
+                moved.add(newMedia)
                 val pathsToScan = if (srcFile != null && srcFile.absolutePath != destFile.absolutePath) {
                     arrayOf(srcFile.absolutePath, destFile.absolutePath)
                 } else {
@@ -191,16 +217,48 @@ class AlbumRepository(private val context: Context) {
         return file
     }
 
-    private fun deleteSourceMedia(item: MediaImage) {
+    private fun deleteSourceMedia(item: MediaImage): Boolean {
+        var fileDeleted = false
         if (item.path.isNotBlank()) {
             val file = File(item.path)
             if (file.exists()) {
                 val fDel = runCatching { file.delete() }.getOrDefault(false)
-                if (!fDel && file.exists()) {
-                    runCatching { file.canonicalFile.delete() }
-                }
+                val cDel = if (!fDel && file.exists()) runCatching { file.canonicalFile.delete() }.getOrDefault(false) else false
+                fileDeleted = fDel || cDel || !file.exists()
+            } else {
+                fileDeleted = true
             }
         }
+        val mediaStoreUri = if (item.id > 0) {
+            if (item.isVideo) ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, item.id)
+            else ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, item.id)
+        } else {
+            item.uri
+        }
+        val rowDeleted = runCatching { context.contentResolver.delete(mediaStoreUri, null, null) > 0 }.getOrDefault(false)
+        if (item.id > 0) {
+            val table = if (item.isVideo) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            runCatching {
+                context.contentResolver.delete(table, "${MediaStore.MediaColumns._ID}=?", arrayOf(item.id.toString()))
+            }
+        }
+        if (item.uri != mediaStoreUri) {
+            runCatching { context.contentResolver.delete(item.uri, null, null) }
+        }
+        if (item.path.isNotBlank()) {
+            val table = if (item.isVideo) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            runCatching {
+                context.contentResolver.delete(table, "${MediaStore.MediaColumns.DATA}=?", arrayOf(item.path))
+            }
+            runCatching {
+                context.contentResolver.delete(MediaStore.Files.getContentUri("external"), "${MediaStore.MediaColumns.DATA}=?", arrayOf(item.path))
+            }
+            MediaScannerConnection.scanFile(context, arrayOf(item.path), null, null)
+        }
+        return fileDeleted || rowDeleted
+    }
+
+    private fun deleteSourceMediaStoreRow(item: MediaImage) {
         val mediaStoreUri = if (item.id > 0) {
             if (item.isVideo) ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, item.id)
             else ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, item.id)

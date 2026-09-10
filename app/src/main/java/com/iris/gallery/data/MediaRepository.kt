@@ -27,7 +27,20 @@ class MediaRepository(private val context: Context) {
         }
     }.getOrDefault(emptyList())
 
+    private val recentMovedOrDeletedIds = java.util.concurrent.ConcurrentHashMap<Long, Long>()
+    private val recentMovedOrDeletedPaths = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    fun markMovedOrDeleted(ids: Set<Long>, paths: Set<String>) {
+        val now = System.currentTimeMillis()
+        ids.forEach { if (it > 0) recentMovedOrDeletedIds[it] = now }
+        paths.forEach { if (it.isNotBlank()) recentMovedOrDeletedPaths[it] = now }
+    }
+
     suspend fun loadImages(trashed: Boolean = false): List<MediaImage> = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        recentMovedOrDeletedIds.entries.removeIf { now - it.value > 15_000 }
+        recentMovedOrDeletedPaths.entries.removeIf { now - it.value > 15_000 }
+
         val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
         val projection = arrayOf(
             MediaStore.Images.Media._ID,
@@ -107,6 +120,9 @@ class MediaRepository(private val context: Context) {
 
                 while (cursor.moveToNext()) {
                     val mediaId = cursor.getLong(id)
+                    if (recentMovedOrDeletedIds.containsKey(mediaId)) {
+                        continue
+                    }
                     val isVid = cursor.getInt(mediaType) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
                     val displayName = cursor.getString(name).orEmpty()
                     val rawData = if (dataCol >= 0) cursor.getString(dataCol).orEmpty() else ""
@@ -126,6 +142,9 @@ class MediaRepository(private val context: Context) {
                         ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, mediaId)
                     }
                     if (filePath.isNotBlank()) {
+                        if (recentMovedOrDeletedPaths.containsKey(filePath)) {
+                            continue
+                        }
                         val file = File(filePath)
                         if (!file.exists()) {
                             android.media.MediaScannerConnection.scanFile(context, arrayOf(filePath), null, null)
@@ -164,6 +183,72 @@ class MediaRepository(private val context: Context) {
         )
         if (!trashed) saveSnapshot(sorted)
         sorted
+    }
+
+    suspend fun renameMedia(item: MediaImage, newName: String): MediaImage? = withContext(Dispatchers.IO) {
+        val trimmedName = newName.trim()
+        if (trimmedName.isBlank()) return@withContext null
+
+        val currentExt = item.name.substringAfterLast('.', "")
+        val finalName = if (trimmedName.contains('.') || currentExt.isEmpty()) trimmedName else "$trimmedName.$currentExt"
+        if (finalName == item.name) return@withContext item
+
+        val srcFile = if (item.path.isNotBlank()) File(item.path) else null
+        var renamedPath = item.path
+
+        if (srcFile != null && srcFile.exists()) {
+            val destFile = File(srcFile.parentFile, finalName)
+            val lastModified = srcFile.lastModified()
+            val renamed = runCatching { srcFile.renameTo(destFile) }.getOrDefault(false)
+            if (renamed) {
+                if (lastModified > 0) destFile.setLastModified(lastModified)
+                renamedPath = destFile.absolutePath
+                markMovedOrDeleted(setOf(item.id), setOf(item.path))
+                android.media.MediaScannerConnection.scanFile(context, arrayOf(destFile.absolutePath, srcFile.absolutePath), null, null)
+                if (item.id > 0) {
+                    val canonicalUri = if (item.isVideo) {
+                        ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, item.id)
+                    } else {
+                        ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, item.id)
+                    }
+                    runCatching { context.contentResolver.delete(canonicalUri, null, null) }
+                }
+            } else {
+                if (item.id > 0) {
+                    val canonicalUri = if (item.isVideo) {
+                        ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, item.id)
+                    } else {
+                        ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, item.id)
+                    }
+                    val values = android.content.ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, finalName)
+                    }
+                    val updated = runCatching {
+                        context.contentResolver.update(canonicalUri, values, null, null) > 0
+                    }.getOrDefault(false)
+                    if (!updated) return@withContext null
+                } else {
+                    return@withContext null
+                }
+            }
+        } else if (item.id > 0) {
+            val canonicalUri = if (item.isVideo) {
+                ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, item.id)
+            } else {
+                ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, item.id)
+            }
+            val values = android.content.ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, finalName)
+            }
+            val updated = runCatching {
+                context.contentResolver.update(canonicalUri, values, null, null) > 0
+            }.getOrDefault(false)
+            if (!updated) return@withContext null
+        } else {
+            return@withContext null
+        }
+
+        item.copy(name = finalName, path = renamedPath)
     }
 
     private fun saveSnapshot(media: List<MediaImage>) {

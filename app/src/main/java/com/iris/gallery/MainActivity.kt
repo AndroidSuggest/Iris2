@@ -15,6 +15,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.app.KeyguardManager
 import android.widget.Toast
@@ -540,6 +541,7 @@ private fun GalleryApp(
                 favorites = emptySet(),
                 autoPlay = settings.autoPlayVideo,
                 loop = settings.loopVideo,
+                videoDoubleTapToZoom = settings.videoDoubleTapToZoom,
                 showViewerUserComments = settings.showViewerUserComments,
                 showFilmstrip = settings.showFilmstrip,
                 dismissedFilmstripTip = settings.dismissedFilmstripTip,
@@ -548,6 +550,9 @@ private fun GalleryApp(
                 dismissedRotateTip = settings.dismissedRotateTip,
                 onDismissRotateTip = { settingsPreferences.setDismissedRotateTip(true) },
                 doubleTapZoomLevel = settings.doubleTapZoomLevel,
+                timelineDateFormat = settings.timelineDateFormat,
+                customTimelineDateFormat = settings.customTimelineDateFormat,
+                smartYearHiding = settings.smartYearHiding,
                 isLocked = false,
                 isInTrash = false,
                 confirmDeleteSetting = settings.confirmDelete,
@@ -865,6 +870,7 @@ private fun GalleryApp(
                         getAlbumDir = viewModel::getAlbumDirectory,
                         createAlbumDir = viewModel::createNewAlbumDirectory,
                         onRefresh = { viewModel.refresh() },
+                        onRenameMedia = viewModel::renameMedia,
                         initialMemories = initialMemories,
                         initialViewUri = initialViewUri,
                         initialEditMode = initialEditMode,
@@ -993,6 +999,7 @@ private fun GalleryScaffold(
     onScanDuplicates: () -> Unit,
     onCancelDuplicateScan: () -> Unit,
     onRefresh: () -> Unit = {},
+    onRenameMedia: (MediaImage, String, (MediaImage?) -> Unit) -> Unit = { _, _, _ -> },
     initialMemories: Boolean,
     initialViewUri: Uri? = null,
     initialEditMode: Boolean = false,
@@ -1011,8 +1018,10 @@ private fun GalleryScaffold(
     var librarySection by remember { mutableStateOf<String?>(if (initialMemories) "memories" else null) }
     var editorImage by remember { mutableStateOf<MediaImage?>(null) }
 
-    LaunchedEffect(images, initialViewUri, initialEditMode) {
-        if (initialViewUri != null) {
+    var initialUriHandled by remember { mutableStateOf(false) }
+    LaunchedEffect(initialViewUri, initialEditMode) {
+        if (initialViewUri != null && !initialUriHandled) {
+            initialUriHandled = true
             val resolved = withContext(Dispatchers.IO) { resolveMediaUri(context, initialViewUri) }
             val matched = images.firstOrNull {
                 it.uri == initialViewUri ||
@@ -1412,7 +1421,8 @@ private fun GalleryScaffold(
                                 )
                             }
                         }
-                        if (librarySection == null && selectedAlbum == null) {
+                        val inSubpage = (destination == 1 && selectedAlbum != null) || (destination == 3 && librarySection != null)
+                        if (!inSubpage) {
                             IconButton(onClick = {
                                 activeOverlayScreen = "settings"
                             }) {
@@ -1432,7 +1442,10 @@ private fun GalleryScaffold(
                         selected = destination == index,
                         onClick = { tabScope.launch {
                             val current = tabPagerState.currentPage
-                            if (kotlin.math.abs(current - index) > 1) {
+                            if (current == index) {
+                                if (index == 1) selectedAlbumId = null
+                                if (index == 3) librarySection = null
+                            } else if (kotlin.math.abs(current - index) > 1) {
                                 tabPagerState.scrollToPage(index)
                             } else {
                                 tabPagerState.animateScrollToPage(index, animationSpec = tween(220, easing = FastOutSlowInEasing))
@@ -1945,6 +1958,7 @@ private fun GalleryScaffold(
             favorites = favorites,
             autoPlay = settings.autoPlayVideo,
             loop = settings.loopVideo,
+            videoDoubleTapToZoom = settings.videoDoubleTapToZoom,
             showViewerUserComments = settings.showViewerUserComments,
             showFilmstrip = settings.showFilmstrip,
             dismissedFilmstripTip = settings.dismissedFilmstripTip,
@@ -1953,6 +1967,9 @@ private fun GalleryScaffold(
             dismissedRotateTip = settings.dismissedRotateTip,
             onDismissRotateTip = { settingsPreferences.setDismissedRotateTip(true) },
             doubleTapZoomLevel = settings.doubleTapZoomLevel,
+            timelineDateFormat = settings.timelineDateFormat,
+            customTimelineDateFormat = settings.customTimelineDateFormat,
+            smartYearHiding = settings.smartYearHiding,
             isLocked = false,
             isInTrash = false,
             confirmDeleteSetting = settings.confirmDelete,
@@ -1961,6 +1978,16 @@ private fun GalleryScaffold(
             availableAlbums = availableAlbums,
             onToggleFavorite = { },
             onClose = { externalMedia = null },
+            onRename = { media, newName ->
+                onRenameMedia(media, newName) { updated ->
+                    if (updated != null) {
+                        externalMedia = updated
+                        Toast.makeText(context, context.getString(R.string.toast_rename_success, updated.name), Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, R.string.toast_rename_failed, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
             onDelete = { item, _ ->
                 externalMedia = null
                 runCatching { context.contentResolver.delete(item.uri, null, null) }
@@ -1970,8 +1997,15 @@ private fun GalleryScaffold(
             onEdit = { editorImage = it; externalMedia = null },
             onLock = { },
             onUnlock = { },
-            onMoveToAlbum = { _, _, _ -> },
-            onCopyToAlbum = { _, _, _ -> },
+            onMoveToAlbum = { mediaList, dir, name ->
+                trashFeedback = TrashFeedback(TrashFeedbackType.MOVED_TO_ALBUM, mediaList.size, name)
+                onMoveToAlbum(mediaList, dir, name)
+                externalMedia = null
+            },
+            onCopyToAlbum = { mediaList, dir, name ->
+                trashFeedback = TrashFeedback(TrashFeedbackType.COPIED_TO_ALBUM, mediaList.size, name)
+                onCopyToAlbum(mediaList, dir, name)
+            },
             getAlbumDir = getAlbumDir,
             createAlbumDir = createAlbumDir,
         )
@@ -1988,6 +2022,7 @@ private fun GalleryScaffold(
             favorites = favorites,
             autoPlay = settings.autoPlayVideo,
             loop = settings.loopVideo,
+            videoDoubleTapToZoom = settings.videoDoubleTapToZoom,
             showViewerUserComments = settings.showViewerUserComments,
             showFilmstrip = settings.showFilmstrip,
             dismissedFilmstripTip = settings.dismissedFilmstripTip,
@@ -1996,6 +2031,9 @@ private fun GalleryScaffold(
             dismissedRotateTip = settings.dismissedRotateTip,
             onDismissRotateTip = { settingsPreferences.setDismissedRotateTip(true) },
             doubleTapZoomLevel = settings.doubleTapZoomLevel,
+            timelineDateFormat = settings.timelineDateFormat,
+            customTimelineDateFormat = settings.customTimelineDateFormat,
+            smartYearHiding = settings.smartYearHiding,
             isLocked = isViewingLocked,
             isInTrash = isViewingTrash,
             confirmDeleteSetting = settings.confirmDelete,
@@ -2003,9 +2041,29 @@ private fun GalleryScaffold(
             onSetPreferredEditor = { settingsPreferences.setPreferredEditor(it) },
             availableAlbums = availableAlbums,
             onToggleFavorite = onToggleFavorite,
-            onClose = { selectedId = null },
+            onClose = { selectedId = null; viewerImages = null },
+            onPageChanged = { selectedId = it },
+            onRename = { media, newName ->
+                onRenameMedia(media, newName) { updated ->
+                    if (updated != null) {
+                        viewerImages = viewerImages?.map { if (it.id == media.id) updated else it }
+                        Toast.makeText(context, context.getString(R.string.toast_rename_success, updated.name), Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, R.string.toast_rename_failed, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
             onDelete = { media, deletePermanently ->
-                selectedId = null
+                val activeList = viewerImages ?: images
+                val currentIndex = activeList.indexOfFirst { it.id == media.id }
+                val nextImage = if (activeList.size > 1 && currentIndex >= 0) {
+                    if (currentIndex < activeList.size - 1) activeList[currentIndex + 1]
+                    else activeList[currentIndex - 1]
+                } else null
+
+                selectedId = nextImage?.id
+                viewerImages = viewerImages?.filterNot { it.id == media.id }
+
                 if (isViewingTrash || deletePermanently) {
                     handleDeletePermanently(listOf(media))
                 } else if (isViewingLocked) {
@@ -2747,6 +2805,7 @@ private fun PhotoViewer(
     favorites: Set<Long>,
     autoPlay: Boolean = true,
     loop: Boolean = true,
+    videoDoubleTapToZoom: Boolean = false,
     showViewerUserComments: Boolean = true,
     showFilmstrip: Boolean = true,
     dismissedFilmstripTip: Boolean = false,
@@ -2755,6 +2814,9 @@ private fun PhotoViewer(
     dismissedRotateTip: Boolean = false,
     onDismissRotateTip: () -> Unit = {},
     doubleTapZoomLevel: Float = 2.5f,
+    timelineDateFormat: TimelineDateFormat = TimelineDateFormat.SYSTEM_DEFAULT,
+    customTimelineDateFormat: String = "d. MMMM yyyy",
+    smartYearHiding: Boolean = true,
     isLocked: Boolean = false,
     isInTrash: Boolean = false,
     confirmDeleteSetting: Boolean = false,
@@ -2763,6 +2825,8 @@ private fun PhotoViewer(
     availableAlbums: List<MediaAlbum> = emptyList(),
     onToggleFavorite: (Long) -> Unit,
     onClose: () -> Unit,
+    onPageChanged: (Long) -> Unit = {},
+    onRename: (MediaImage, String) -> Unit = { _, _ -> },
     onDelete: (MediaImage, Boolean) -> Unit,
     onRestore: (MediaImage) -> Unit = {},
     onEditMetadata: (MediaImage, ExifEditRequest) -> Unit,
@@ -2804,7 +2868,6 @@ private fun PhotoViewer(
         }
         onClose()
     }
-    BackHandler(enabled = true) { handleClose() }
 
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { images.size })
     var showInfo by remember { mutableStateOf(false) }
@@ -2828,6 +2891,7 @@ private fun PhotoViewer(
     val coroutineScope = rememberCoroutineScope()
     var zoomedImageId by remember { mutableStateOf<Long?>(null) }
     var viewerMenuExpanded by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
     var viewerAlbumAction by remember { mutableStateOf<AlbumAction?>(null) }
     val current = images[pagerState.currentPage]
     val currentExif by produceState<ExifMetadata?>(initialValue = null, current.id, current.uri) {
@@ -2852,10 +2916,34 @@ private fun PhotoViewer(
         if (current.isVideo) videoEngine.load(current.uri) else videoEngine.player.pause()
     }
 
+    val dismissOffsetY = remember { Animatable(0f) }
+    var isDismissing by remember { mutableStateOf(false) }
+    var viewerHeightPx by remember { mutableFloatStateOf(context.resources.displayMetrics.heightPixels.toFloat()) }
+    val dismissThresholdPx = remember(context) { 120f * context.resources.displayMetrics.density }
+    val flingThresholdPx = remember(context) { 30f * context.resources.displayMetrics.density }
+
+    fun triggerAnimatedDismiss(velocity: Float = 0f) {
+        if (isDismissing) return
+        isDismissing = true
+        videoEngine.player.pause()
+        coroutineScope.launch {
+            dismissOffsetY.animateTo(
+                targetValue = viewerHeightPx,
+                animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+            )
+            handleClose()
+        }
+    }
+
+    BackHandler(enabled = !isDismissing) { triggerAnimatedDismiss() }
+
     // Preload adjacent images into memory for instant zero-delay swiping
     val imageLoader = remember(context) { coil3.SingletonImageLoader.get(context) }
     LaunchedEffect(pagerState.currentPage, images) {
         val currentIdx = pagerState.currentPage
+        if (currentIdx in images.indices) {
+            onPageChanged(images[currentIdx].id)
+        }
         listOf(currentIdx - 1, currentIdx + 1, currentIdx + 2).forEach { idx ->
             if (idx in images.indices) {
                 val media = images[idx]
@@ -2871,13 +2959,33 @@ private fun PhotoViewer(
         }
     }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF080808)) {
+    val dismissProgress = (dismissOffsetY.value / 350f).coerceIn(0f, 1f)
+    val contentScale = 1f - (dismissProgress * 0.12f)
+    val bgAlpha = (1f - dismissProgress).coerceIn(0f, 1f)
+    val controlsDismissAlpha = (1f - (dismissOffsetY.value / 100f)).coerceIn(0f, 1f)
+
+    Surface(
+        modifier = Modifier
+            .fillMaxSize()
+            .onSizeChanged { if (it.height > 0) viewerHeightPx = it.height.toFloat() },
+        color = Color(0xFF080808).copy(alpha = bgAlpha)
+    ) {
       Box(Modifier.fillMaxSize()) {
-        HorizontalPager(
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationY = dismissOffsetY.value
+                    scaleX = contentScale
+                    scaleY = contentScale
+                }
+        ) {
+          HorizontalPager(
             state = pagerState,
             beyondViewportPageCount = 1,
-            userScrollEnabled = zoomedImageId != current.id,
-        ) { page ->
+            userScrollEnabled = zoomedImageId != current.id && !isDismissing,
+            pageSpacing = 16.dp,
+          ) { page ->
             val media = images[page]
             if (media.isVideo) {
                 VideoPage(
@@ -2887,8 +2995,33 @@ private fun PhotoViewer(
                     controlsVisible = controlsVisible,
                     autoPlay = autoPlay,
                     loop = loop,
+                    doubleTapToZoom = videoDoubleTapToZoom,
                     onTap = { controlsVisible = !controlsVisible },
                     onSwipeUp = { showInfo = true },
+                    onSwipeDown = { triggerAnimatedDismiss() },
+                    onDismissDrag = { dy ->
+                        if (!isDismissing) {
+                            coroutineScope.launch {
+                                dismissOffsetY.snapTo((dismissOffsetY.value + dy).coerceAtLeast(0f))
+                            }
+                        }
+                    },
+                    onDismissRelease = { velocityY ->
+                        if (!isDismissing) {
+                            val shouldDismiss = dismissOffsetY.value > dismissThresholdPx ||
+                                (dismissOffsetY.value > flingThresholdPx && velocityY > 800f)
+                            if (shouldDismiss) {
+                                triggerAnimatedDismiss(velocityY)
+                            } else {
+                                coroutineScope.launch {
+                                    dismissOffsetY.animateTo(
+                                        targetValue = 0f,
+                                        animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)
+                                    )
+                                }
+                            }
+                        }
+                    },
                     onZoomChanged = { zoomed -> zoomedImageId = if (zoomed) media.id else null },
                 )
             } else {
@@ -2898,6 +3031,30 @@ private fun PhotoViewer(
                     pinchToRotate = pinchToRotate,
                     onTap = { controlsVisible = !controlsVisible },
                     onSwipeUp = { showInfo = true },
+                    onSwipeDown = { triggerAnimatedDismiss() },
+                    onDismissDrag = { dy ->
+                        if (!isDismissing) {
+                            coroutineScope.launch {
+                                dismissOffsetY.snapTo((dismissOffsetY.value + dy).coerceAtLeast(0f))
+                            }
+                        }
+                    },
+                    onDismissRelease = { velocityY ->
+                        if (!isDismissing) {
+                            val shouldDismiss = dismissOffsetY.value > dismissThresholdPx ||
+                                (dismissOffsetY.value > flingThresholdPx && velocityY > 800f)
+                            if (shouldDismiss) {
+                                triggerAnimatedDismiss(velocityY)
+                            } else {
+                                coroutineScope.launch {
+                                    dismissOffsetY.animateTo(
+                                        targetValue = 0f,
+                                        animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow)
+                                    )
+                                }
+                            }
+                        }
+                    },
                     onRotateGestureTriggered = {
                         if (!dismissedRotateTip) showRotateTipBanner = true
                     },
@@ -2906,10 +3063,13 @@ private fun PhotoViewer(
                     },
                 )
             }
+          }
         }
         AnimatedVisibility(
           visible = controlsVisible,
-          modifier = Modifier.align(Alignment.TopCenter),
+          modifier = Modifier
+              .align(Alignment.TopCenter)
+              .graphicsLayer { alpha = controlsDismissAlpha },
           enter = fadeIn(tween(180)) + slideInVertically(tween(220)) { -it / 5 },
           exit = fadeOut(tween(140)) + slideOutVertically(tween(180)) { -it / 5 },
         ) {
@@ -2922,19 +3082,31 @@ private fun PhotoViewer(
             modifier = Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
           ) {
-            IconButton(onClick = handleClose) { Icon(Icons.Outlined.ArrowBack, stringResource(R.string.action_back), tint = Color.White) }
+            IconButton(onClick = { triggerAnimatedDismiss() }) { Icon(Icons.Outlined.ArrowBack, stringResource(R.string.action_back), tint = Color.White) }
             val currentLocale = rememberAppLocale()
-            val headerDate = remember(current.dateTaken, currentLocale) {
-                val df = java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM, currentLocale)
+            val headerDate = remember(current.dateTaken, currentLocale, timelineDateFormat, smartYearHiding, customTimelineDateFormat) {
                 val tf = java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT, currentLocale)
-                "${df.format(java.util.Date(current.dateTaken))} · ${tf.format(java.util.Date(current.dateTaken))}"
+                val timeStr = tf.format(java.util.Date(current.dateTaken))
+                val localDate = Instant.ofEpochMilli(current.dateTaken).atZone(ZoneId.systemDefault()).toLocalDate()
+                val isSameYear = localDate.year == LocalDate.now().year
+                val formatter = getTimelineFormatter(
+                    format = timelineDateFormat,
+                    isSameYear = isSameYear,
+                    showDayOfWeek = false,
+                    locale = currentLocale,
+                    customPattern = customTimelineDateFormat,
+                    smartYearHiding = smartYearHiding,
+                )
+                val dateStr = localDate.format(formatter)
+                "$dateStr · $timeStr"
             }
+            val pageCountText = stringResource(R.string.viewer_page_count, pagerState.currentPage + 1, images.size)
             val customTitle = current.title.takeIf { it.isNotBlank() && it != current.name && it != current.name.substringBeforeLast('.') }
             val primaryHeaderText = customTitle ?: headerDate
             val secondaryHeaderText = if (customTitle != null) {
-                "$headerDate · ${stringResource(R.string.viewer_page_count, pagerState.currentPage + 1, images.size)}"
+                "$pageCountText · $headerDate"
             } else {
-                "${current.name} · ${stringResource(R.string.viewer_page_count, pagerState.currentPage + 1, images.size)}"
+                "$pageCountText · ${current.name}"
             }
             Column(modifier = Modifier.weight(1f).padding(horizontal = 8.dp)) {
                 Text(primaryHeaderText, color = Color.White, style = MaterialTheme.typography.titleMedium,
@@ -2966,6 +3138,14 @@ private fun PhotoViewer(
                             onClick = {
                                 viewerMenuExpanded = false
                                 viewerAlbumAction = AlbumAction.COPY
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.action_rename)) },
+                            leadingIcon = { Icon(Icons.Outlined.Edit, null) },
+                            onClick = {
+                                viewerMenuExpanded = false
+                                showRenameDialog = true
                             }
                         )
                         if (!current.isVideo) {
@@ -3006,7 +3186,8 @@ private fun PhotoViewer(
           modifier = Modifier
               .align(Alignment.BottomCenter)
               .navigationBarsPadding()
-              .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+              .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+              .graphicsLayer { alpha = controlsDismissAlpha },
           enter = fadeIn(tween(220, easing = FastOutSlowInEasing)) +
                   slideInVertically(
                       animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
@@ -3458,9 +3639,27 @@ private fun PhotoViewer(
       }
     }
 
-    if (showInfo) PhotoDetailsSheet(current, onDismiss = { showInfo = false }, onSave = { request ->
-        onEditMetadata(current, request); showInfo = false
-    })
+    if (showInfo) PhotoDetailsSheet(
+        image = current,
+        timelineDateFormat = timelineDateFormat,
+        customTimelineDateFormat = customTimelineDateFormat,
+        onDismiss = { showInfo = false },
+        onSave = { request ->
+            onEditMetadata(current, request)
+            showInfo = false
+        },
+        onRename = onRename,
+    )
+    if (showRenameDialog) {
+        RenameFileDialog(
+            currentName = current.name,
+            onDismiss = { showRenameDialog = false },
+            onConfirm = { newName ->
+                onRename(current, newName)
+                showRenameDialog = false
+            }
+        )
+    }
     if (confirmDelete) {
         val isPermanentlyDeleting = isLocked || isInTrash
         var deletePermanently by remember { mutableStateOf(isPermanentlyDeleting) }
@@ -3581,6 +3780,9 @@ private fun ZoomablePhoto(
     pinchToRotate: Boolean = true,
     onTap: () -> Unit,
     onSwipeUp: () -> Unit = {},
+    onSwipeDown: () -> Unit = {},
+    onDismissDrag: (Float) -> Unit = {},
+    onDismissRelease: (Float) -> Unit = {},
     onRotateGestureTriggered: () -> Unit = {},
     onZoomChanged: (Boolean) -> Unit,
 ) {
@@ -3690,12 +3892,20 @@ private fun ZoomablePhoto(
                         var accumulatedAngleDelta = 0f
                         var isRotating = false
                         var isSwipeUpDetected = false
+                        var isDismissDragging = false
+                        var lastDragTime = SystemClock.uptimeMillis()
+                        var lastDragY = 0f
+                        var releaseVelocityY = 0f
                         do {
                             val event = awaitPointerEvent()
                             val pointersDown = event.changes.count { it.pressed }
                             val scale = scaleAnim.value
                             val offset = offsetAnim.value
                             if (pointersDown >= 2 || (pointersDown == 1 && scale > 1f)) {
+                                if (isDismissDragging) {
+                                    isDismissDragging = false
+                                    onDismissRelease(0f)
+                                }
                                 val zoomChange = event.calculateZoom()
                                 val panChange = event.calculatePan()
                                 val rotationChange = if (pointersDown >= 2 && pinchToRotate) event.calculateRotation() else 0f
@@ -3744,13 +3954,30 @@ private fun ZoomablePhoto(
                                 val panChange = event.calculatePan()
                                 totalDragY += panChange.y
                                 totalDragX += panChange.x
-                                if (!isSwipeUpDetected && totalDragY < -75f && kotlin.math.abs(totalDragY) > kotlin.math.abs(totalDragX) * 1.5f) {
+                                val now = SystemClock.uptimeMillis()
+                                val dt = (now - lastDragTime).coerceAtLeast(1)
+                                releaseVelocityY = (totalDragY - lastDragY) / (dt / 1000f)
+                                lastDragTime = now
+                                lastDragY = totalDragY
+
+                                if (!isSwipeUpDetected && !isDismissDragging && totalDragY < -75f && kotlin.math.abs(totalDragY) > kotlin.math.abs(totalDragX) * 1.5f) {
                                     isSwipeUpDetected = true
                                     event.changes.forEach { it.consume() }
                                     onSwipeUp()
+                                } else if (!isSwipeUpDetected) {
+                                    if (!isDismissDragging && totalDragY > 15f && totalDragY > kotlin.math.abs(totalDragX) * 1.3f) {
+                                        isDismissDragging = true
+                                    }
+                                    if (isDismissDragging) {
+                                        event.changes.forEach { it.consume() }
+                                        onDismissDrag(panChange.y)
+                                    }
                                 }
                             }
                         } while (event.changes.any { it.pressed })
+                        if (isDismissDragging) {
+                            onDismissRelease(releaseVelocityY)
+                        }
 
                         // When gesture ends, snap rotation to nearest 90° angle if rotated
                         if (isRotating) {
@@ -3862,8 +4089,11 @@ private fun ViewerIconButton(
 @OptIn(ExperimentalMaterial3Api::class)
 private fun PhotoDetailsSheet(
     image: MediaImage,
+    timelineDateFormat: TimelineDateFormat = TimelineDateFormat.SYSTEM_DEFAULT,
+    customTimelineDateFormat: String = "d. MMMM yyyy",
     onDismiss: () -> Unit,
     onSave: (ExifEditRequest) -> Unit,
+    onRename: (MediaImage, String) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val exif by produceState<ExifMetadata?>(initialValue = null, image.id, image.uri) {
@@ -3872,6 +4102,7 @@ private fun PhotoDetailsSheet(
         }
     }
     var editing by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
     ) {
@@ -3930,7 +4161,7 @@ private fun PhotoDetailsSheet(
 
             // 2. Camera & EXIF Metadata Card
             exif?.let { data ->
-                val hasCamera = data.cameraModel != null || data.aperture != null || data.shutterSpeed != null || data.iso != null || data.focalLength != null
+                val hasCamera = data.cameraDisplayName != null || data.aperture != null || data.shutterSpeed != null || data.iso != null || data.focalLength != null
                 if (hasCamera) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -3940,7 +4171,7 @@ private fun PhotoDetailsSheet(
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Icon(Icons.Outlined.CameraAlt, stringResource(R.string.details_camera_exif), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                                Text(data.cameraModel ?: stringResource(R.string.details_camera_exif), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                Text(data.cameraDisplayName ?: stringResource(R.string.details_camera_exif), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             }
                             if (!data.lensModel.isNullOrBlank()) {
                                 Text(data.lensModel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
@@ -4012,12 +4243,42 @@ private fun PhotoDetailsSheet(
                         Icon(Icons.Outlined.Description, stringResource(R.string.details_file_info), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                         Text(stringResource(R.string.details_file_info), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     }
-                    DetailBlock(stringResource(R.string.details_file_name), image.name)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        DetailBlock(
+                            label = stringResource(R.string.details_file_name),
+                            value = image.name,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(onClick = { showRenameDialog = true }) {
+                            Icon(
+                                Icons.Outlined.Edit,
+                                contentDescription = stringResource(R.string.action_rename),
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
                     if (resolvedTitle != null) {
                         DetailBlock(stringResource(R.string.details_title_field), resolvedTitle)
                     }
-                    val formattedDate = remember(image.dateTaken, currentLocale) {
-                        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT, currentLocale).format(Date(image.dateTaken))
+                    val formattedDate = remember(image.dateTaken, currentLocale, timelineDateFormat, customTimelineDateFormat) {
+                        val tf = DateFormat.getTimeInstance(DateFormat.SHORT, currentLocale)
+                        val timeStr = tf.format(Date(image.dateTaken))
+                        val localDate = Instant.ofEpochMilli(image.dateTaken).atZone(ZoneId.systemDefault()).toLocalDate()
+                        val formatter = getTimelineFormatter(
+                            format = timelineDateFormat,
+                            isSameYear = false,
+                            showDayOfWeek = false,
+                            locale = currentLocale,
+                            customPattern = customTimelineDateFormat,
+                            smartYearHiding = false,
+                        )
+                        val dateStr = localDate.format(formatter)
+                        "$dateStr · $timeStr"
                     }
                     DetailItem(stringResource(R.string.details_captured), formattedDate)
                     val mp = if (image.width > 0 && image.height > 0) (image.width * image.height) / 1_000_000.0 else 0.0
@@ -4056,6 +4317,16 @@ private fun PhotoDetailsSheet(
             },
         )
     }
+    if (showRenameDialog) {
+        RenameFileDialog(
+            currentName = image.name,
+            onDismiss = { showRenameDialog = false },
+            onConfirm = { newName ->
+                onRename(image, newName)
+                showRenameDialog = false
+            }
+        )
+    }
 }
 
 private fun formatFileSize(bytes: Long): String = when {
@@ -4083,9 +4354,9 @@ private fun DetailItem(label: String, value: String) {
 }
 
 @Composable
-private fun DetailBlock(label: String, value: String) {
+private fun DetailBlock(label: String, value: String, modifier: Modifier = Modifier) {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        modifier = modifier.fillMaxWidth().padding(vertical = 2.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
@@ -4093,6 +4364,50 @@ private fun DetailBlock(label: String, value: String) {
             Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
         }
     }
+}
+
+@Composable
+private fun RenameFileDialog(
+    currentName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    val nameWithoutExt = currentName.substringBeforeLast('.')
+    val ext = currentName.substringAfterLast('.', "")
+    var newName by remember { mutableStateOf(nameWithoutExt) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.rename_file_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text(stringResource(R.string.rename_file_hint)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    suffix = if (ext.isNotEmpty()) { { Text(".$ext") } } else null
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val finalName = if (ext.isNotEmpty()) "$newName.$ext" else newName
+                    onConfirm(finalName)
+                    onDismiss()
+                },
+                enabled = newName.isNotBlank() && newName.trim() != nameWithoutExt
+            ) {
+                Text(stringResource(R.string.action_rename))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        }
+    )
 }
 
 @Composable

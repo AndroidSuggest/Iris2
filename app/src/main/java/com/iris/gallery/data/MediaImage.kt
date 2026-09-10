@@ -99,7 +99,16 @@ data class ExifMetadata(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val altitude: Double? = null,
-)
+) {
+    val cameraDisplayName: String?
+        get() = when {
+            cameraMake != null && cameraModel != null && cameraModel.startsWith(cameraMake, ignoreCase = true) -> cameraModel
+            cameraMake != null && cameraModel != null -> "$cameraMake $cameraModel"
+            cameraModel != null -> cameraModel
+            cameraMake != null -> cameraMake
+            else -> null
+        }
+}
 
 data class ExifEditRequest(
     val displayName: String,
@@ -191,14 +200,10 @@ fun loadExifMetadata(context: android.content.Context, uri: Uri): ExifMetadata {
         context.contentResolver.openInputStream(uri)?.use { stream ->
             val exif = androidx.exifinterface.media.ExifInterface(stream)
             val make = cleanExifString(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_MAKE))
-            val model = cleanExifString(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_MODEL))
-            val camera = when {
-                make != null && model != null && model.startsWith(make, ignoreCase = true) -> model
-                make != null && model != null -> "$make $model"
-                model != null -> model
-                make != null -> make
-                else -> null
-            }
+            val rawModel = cleanExifString(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_MODEL))
+            val model = if (make != null && rawModel != null && rawModel.startsWith(make, ignoreCase = true)) {
+                rawModel.substring(make.length).trim().ifBlank { rawModel }
+            } else rawModel
             val lensModel = cleanExifString(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_LENS_MODEL))
                 ?: cleanExifString(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_LENS_MAKE))
             val documentName = cleanExifString(exif.getAttribute("DocumentName"))
@@ -247,7 +252,7 @@ fun loadExifMetadata(context: android.content.Context, uri: Uri): ExifMetadata {
 
             ExifMetadata(
                 title = documentName,
-                cameraModel = camera,
+                cameraModel = model,
                 cameraMake = make,
                 lensModel = lensModel,
                 userComment = userComment,
