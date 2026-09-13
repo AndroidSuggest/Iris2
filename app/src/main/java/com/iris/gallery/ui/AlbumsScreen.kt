@@ -285,30 +285,28 @@ fun AlbumsGrid(
                             )
                         }
 
-                        // Floating Pin Button on top-right of album image
-                        if (sort != AlbumSort.CUSTOM) {
+                        // Floating Pin Badge on top-right of pinned album image
+                        if (sort != AlbumSort.CUSTOM && isPinned) {
                             Surface(
                                 shape = CircleShape,
-                                color = if (isPinned) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f)
-                                        else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.92f),
-                                contentColor = if (isPinned) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f),
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                 shadowElevation = 2.dp,
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
                                     .padding(6.dp)
-                                    .size(30.dp)
+                                    .size(28.dp)
                                     .clickable { onTogglePinned(album.id) },
                             ) {
                                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                                     Icon(
-                                        if (isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                                        contentDescription = if (isPinned) androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.album_unpin)
-                                            else androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.album_pin),
-                                        modifier = Modifier.size(16.dp),
+                                        Icons.Filled.PushPin,
+                                        contentDescription = androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.album_unpin),
+                                        modifier = Modifier.size(15.dp),
                                     )
                                 }
                             }
-                        } else if (isEditingOrder) {
+                        } else if (sort == AlbumSort.CUSTOM && isEditingOrder) {
                             val index = effectiveOrder.indexOf(album.id)
                             Row(
                                 modifier = Modifier

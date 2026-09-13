@@ -648,4 +648,20 @@
     <string name="toast_rename_success">تمت إعادة التسمية إلى %1$s</string>
     <string name="toast_rename_failed">تعذرت إعادة تسمية الملف</string>
     <string name="edit_video_with_external_title">تعديل الفيديو باستخدام…</string>
+
+    <!-- Editor Redesign Categories & Navigation -->
+    <string name="editor_category_transform">تحويل</string>
+    <string name="editor_category_adjust">ضبط</string>
+    <string name="editor_category_markup">رسم ونص</string>
+    <string name="editor_category_effects">الخصوصية</string>
+    <string name="editor_mode_draw">فرشاة</string>
+    <string name="editor_mode_text">نص</string>
+    <string name="editor_mode_blur">تمويه</string>
+    <string name="editor_mode_pixelate">بكسلة</string>
+    <string name="editor_flip_horizontal">انعكاس أفقي</string>
+    <string name="editor_flip_vertical">انعكاس رأسي</string>
+    <string name="editor_custom_resize">تغيير الحجم</string>
+    <string name="editor_reset_adjustments">إعادة ضبط</string>
+    <string name="editor_resize_title">تغيير حجم الصورة</string>
+    <string name="editor_apply">تطبيق</string>
 </resources>

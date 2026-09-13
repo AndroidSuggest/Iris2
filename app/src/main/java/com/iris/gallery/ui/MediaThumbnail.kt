@@ -128,9 +128,44 @@ private fun loadThumbnail(context: Context, image: MediaImage, targetSizePx: Int
     } catch (_: Exception) {
         null
     }
-    bitmap?.prepareToDraw()
-    bitmap?.let { ThumbnailCache.put(cacheKey, it) }
-    return bitmap
+    val finalBitmap = bitmap ?: run {
+        if (image.mimeType.contains("avif", ignoreCase = true) || image.name.endsWith(".avif", ignoreCase = true)) {
+            runCatching {
+                val bytes = if (image.uri.scheme == "file" || image.path.startsWith(context.filesDir.absolutePath)) {
+                    java.io.File(image.path).readBytes()
+                } else {
+                    context.contentResolver.openInputStream(image.uri)?.use { it.readBytes() }
+                }
+                if (bytes != null && bytes.isNotEmpty()) {
+                    val byteBuffer = java.nio.ByteBuffer.allocateDirect(bytes.size).apply {
+                        put(bytes)
+                        flip()
+                    }
+                    if (org.aomedia.avif.android.AvifDecoder.isAvifImage(byteBuffer)) {
+                        val info = org.aomedia.avif.android.AvifDecoder.Info()
+                        if (org.aomedia.avif.android.AvifDecoder.getInfo(byteBuffer, bytes.size, info)) {
+                            val fullBmp = Bitmap.createBitmap(info.width, info.height, Bitmap.Config.ARGB_8888)
+                            if (org.aomedia.avif.android.AvifDecoder.decode(byteBuffer, bytes.size, fullBmp)) {
+                                val scale = minOf(1f, targetSizePx.toFloat() / maxOf(info.width, info.height))
+                                val tw = (info.width * scale).toInt().coerceAtLeast(1)
+                                val th = (info.height * scale).toInt().coerceAtLeast(1)
+                                if (tw < info.width || th < info.height) {
+                                    Bitmap.createScaledBitmap(fullBmp, tw, th, true).also {
+                                        if (it !== fullBmp) fullBmp.recycle()
+                                    }
+                                } else {
+                                    fullBmp
+                                }
+                            } else null
+                        } else null
+                    } else null
+                } else null
+            }.getOrNull()
+        } else null
+    }
+    finalBitmap?.prepareToDraw()
+    finalBitmap?.let { ThumbnailCache.put(cacheKey, it) }
+    return finalBitmap
 }
 
 @Composable

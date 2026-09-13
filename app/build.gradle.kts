@@ -62,6 +62,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
+    implementation("org.aomedia.avif.android:avif:1.1.1.14d8e3c4")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

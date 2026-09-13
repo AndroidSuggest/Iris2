@@ -2,6 +2,7 @@ package com.iris.gallery.ui
 
 import android.content.ContentValues
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapShader
@@ -29,13 +30,16 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -46,17 +50,28 @@ import androidx.compose.material.icons.automirrored.outlined.RotateLeft
 import androidx.compose.material.icons.automirrored.outlined.RotateRight
 import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.AspectRatio
+import androidx.compose.material.icons.outlined.BlurOn
+import androidx.compose.material.icons.outlined.BrightnessMedium
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Contrast
+import androidx.compose.material.icons.outlined.CropRotate
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.Draw
+import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.RestartAlt
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.WbSunny
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -79,24 +94,50 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.platform.LocalConfiguration
-import android.content.res.Configuration
+import com.iris.gallery.R
 import com.iris.gallery.data.MediaImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.aomedia.avif.android.AvifDecoder
+import java.io.File
+import java.nio.ByteBuffer
+
+enum class EditorCategory {
+    TRANSFORM,
+    ADJUST,
+    MARKUP,
+    PRIVACY
+}
+
+enum class MarkupSubMode {
+    BRUSH,
+    TEXT
+}
+
+enum class PrivacySubMode {
+    BLUR,
+    PIXELATE
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditorScreen(image: MediaImage, onClose: () -> Unit, onSaved: (Boolean) -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val scope = rememberCoroutineScope()
     val rawPreview by produceState<Bitmap?>(null, image.id) { value = loadPreview(context, image) }
     var editorView by remember { mutableStateOf<EditorCanvasView?>(null) }
-    var tool by remember { mutableStateOf(EditorTool.ADJUST) }
+
+    var category by remember { mutableStateOf(EditorCategory.TRANSFORM) }
+    var markupSubMode by remember { mutableStateOf(MarkupSubMode.BRUSH) }
+    var privacySubMode by remember { mutableStateOf(PrivacySubMode.BLUR) }
+
     var rotation by remember { mutableIntStateOf(0) }
     var flipHorizontal by remember { mutableStateOf(false) }
     var flipVertical by remember { mutableStateOf(false) }
@@ -119,7 +160,15 @@ fun EditorScreen(image: MediaImage, onClose: () -> Unit, onSaved: (Boolean) -> U
     var resizeHeight by remember(image.id, rotation) { mutableStateOf(baseHeight.toString()) }
     var isCustomResized by remember(image.id, rotation) { mutableStateOf(false) }
     var lockAspect by remember { mutableStateOf(true) }
+    var showResizeDialog by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
+
+    val activeTool = when (category) {
+        EditorCategory.TRANSFORM -> EditorTool.CROP
+        EditorCategory.ADJUST -> EditorTool.ADJUST
+        EditorCategory.MARKUP -> if (markupSubMode == MarkupSubMode.BRUSH) EditorTool.DRAW else EditorTool.TEXT
+        EditorCategory.PRIVACY -> if (privacySubMode == PrivacySubMode.BLUR) EditorTool.BLUR else EditorTool.PIXELATE
+    }
 
     val transformedPreview = remember(rawPreview, rotation, flipHorizontal, flipVertical) {
         val src = rawPreview ?: return@remember null
@@ -142,119 +191,170 @@ fun EditorScreen(image: MediaImage, onClose: () -> Unit, onSaved: (Boolean) -> U
     val androidFilter = remember(brightness, saturation, contrast, warmth) {
         ColorMatrix().apply {
             setSaturation(saturation)
-            val shift = brightness * 255f; val pivot = (1f - contrast) * 128f
-            postConcat(ColorMatrix(floatArrayOf(contrast,0f,0f,0f,shift + pivot + warmth * 36f,
-                0f,contrast,0f,0f,shift + pivot, 0f,0f,contrast,0f,shift + pivot - warmth * 36f,
-                0f,0f,0f,1f,0f)))
+            val shift = brightness * 255f
+            val pivot = (1f - contrast) * 128f
+            postConcat(
+                ColorMatrix(
+                    floatArrayOf(
+                        contrast, 0f, 0f, 0f, shift + pivot + warmth * 36f,
+                        0f, contrast, 0f, 0f, shift + pivot,
+                        0f, 0f, contrast, 0f, shift + pivot - warmth * 36f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
+            )
         }.let(::ColorMatrixColorFilter)
     }
 
     BackHandler(onBack = onClose)
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Scaffold(topBar = { TopAppBar(title = { Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_title)) }, navigationIcon = {
-            IconButton(onClick = onClose) { Icon(Icons.Outlined.Close, androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_close)) }
-        }, actions = {
-            Button(enabled = !saving && transformedPreview != null, onClick = {
-                val session = editorView?.session ?: return@Button
-                val crop = RectF(session.crop)
-                val strokes = session.strokes.map { it.copy(points = it.points.toMutableList()) }
-                val textOverlays = session.textOverlays.map { it.copy() }
-                saving = true
-                scope.launch {
-                    val saved = runCatching {
-                        saveEditedCopy(context, image, rotation, flipHorizontal, flipVertical,
-                            brightness, saturation, contrast, warmth,
-                            crop,
-                            if (isCustomResized) resizeWidth.toIntOrNull() else null,
-                            if (isCustomResized) resizeHeight.toIntOrNull() else null,
-                            strokes,
-                            textOverlays)
-                    }.isSuccess
-                    saving = false; onSaved(saved)
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(stringResource(R.string.editor_title)) },
+                    navigationIcon = {
+                        IconButton(onClick = onClose) {
+                            Icon(Icons.Outlined.Close, stringResource(R.string.editor_close))
+                        }
+                    },
+                    actions = {
+                        Button(
+                            enabled = !saving && transformedPreview != null,
+                            onClick = {
+                                val session = editorView?.session ?: return@Button
+                                val crop = RectF(session.crop)
+                                val strokes = session.strokes.map { it.copy(points = it.points.toMutableList()) }
+                                val textOverlays = session.textOverlays.map { it.copy() }
+                                saving = true
+                                scope.launch {
+                                    val saved = runCatching {
+                                        saveEditedCopy(
+                                            context, image, rotation, flipHorizontal, flipVertical,
+                                            brightness, saturation, contrast, warmth,
+                                            crop,
+                                            if (isCustomResized) resizeWidth.toIntOrNull() else null,
+                                            if (isCustomResized) resizeHeight.toIntOrNull() else null,
+                                            strokes,
+                                            textOverlays
+                                        )
+                                    }.isSuccess
+                                    saving = false
+                                    onSaved(saved)
+                                }
+                            }
+                        ) {
+                            Text(
+                                if (saving) stringResource(R.string.action_saving)
+                                else stringResource(R.string.action_save_copy)
+                            )
+                        }
+                    }
+                )
+            },
+            bottomBar = {
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier.fillMaxWidth().navigationBarsPadding()
+                ) {
+                    NavigationBarItem(
+                        selected = category == EditorCategory.TRANSFORM,
+                        onClick = {
+                            category = EditorCategory.TRANSFORM
+                            editorView?.selectedTextId = null
+                            selectedOverlay = null
+                        },
+                        icon = { Icon(Icons.Outlined.CropRotate, null) },
+                        label = { Text(stringResource(R.string.editor_category_transform)) }
+                    )
+                    NavigationBarItem(
+                        selected = category == EditorCategory.ADJUST,
+                        onClick = {
+                            category = EditorCategory.ADJUST
+                            editorView?.selectedTextId = null
+                            selectedOverlay = null
+                        },
+                        icon = { Icon(Icons.Outlined.Tune, null) },
+                        label = { Text(stringResource(R.string.editor_category_adjust)) }
+                    )
+                    NavigationBarItem(
+                        selected = category == EditorCategory.MARKUP,
+                        onClick = {
+                            category = EditorCategory.MARKUP
+                        },
+                        icon = { Icon(Icons.Outlined.Draw, null) },
+                        label = { Text(stringResource(R.string.editor_category_markup)) }
+                    )
+                    NavigationBarItem(
+                        selected = category == EditorCategory.PRIVACY,
+                        onClick = {
+                            category = EditorCategory.PRIVACY
+                            editorView?.selectedTextId = null
+                            selectedOverlay = null
+                        },
+                        icon = { Icon(Icons.Outlined.BlurOn, null) },
+                        label = { Text(stringResource(R.string.editor_category_effects)) }
+                    )
                 }
-            }) { Text(if (saving) androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.action_saving) else androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.action_save_copy)) }
-        }) }) { padding ->
+            }
+        ) { padding ->
             Column(
                 Modifier
                     .fillMaxSize()
                     .padding(padding)
-                    .navigationBarsPadding()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    AndroidView(factory = {
-                        EditorCanvasView(it).also { view ->
-                            editorView = view
-                            view.onTextSelected = { overlay ->
-                                selectedOverlay = overlay
+                    AndroidView(
+                        factory = {
+                            EditorCanvasView(it).also { view ->
+                                editorView = view
+                                view.onTextSelected = { overlay ->
+                                    selectedOverlay = overlay
+                                }
                             }
-                        }
-                    },
+                        },
                         update = { view ->
                             view.setSource(transformedPreview)
-                            view.tool = tool
-                            view.brushRadius = if (tool == EditorTool.DRAW) drawBrushSize else brushSize
+                            view.tool = activeTool
+                            view.brushRadius = if (activeTool == EditorTool.DRAW) drawBrushSize else brushSize
                             view.brushColor = drawColor
                             view.effectStrength = strength.toInt()
-                            view.erasing = if (tool == EditorTool.DRAW) drawErasing else erasing
+                            view.erasing = if (activeTool == EditorTool.DRAW) drawErasing else erasing
                             view.colorFilter = androidFilter
-                        }, modifier = Modifier.fillMaxSize())
-                    if (transformedPreview == null) Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_preparing), color = Color.White)
-                }
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    listOf(
-                        EditorTool.ADJUST to com.iris.gallery.R.string.editor_tool_adjust,
-                        EditorTool.CROP to com.iris.gallery.R.string.editor_tool_crop,
-                        EditorTool.TRANSFORM to com.iris.gallery.R.string.editor_tool_transform,
-                        EditorTool.RESIZE to com.iris.gallery.R.string.editor_tool_resize,
-                        EditorTool.DRAW to com.iris.gallery.R.string.editor_tool_draw,
-                        EditorTool.TEXT to com.iris.gallery.R.string.editor_tool_text,
-                        EditorTool.PIXELATE to com.iris.gallery.R.string.editor_tool_pixelate,
-                        EditorTool.BLUR to com.iris.gallery.R.string.editor_tool_blur
-                    ).forEach { (value, strRes) ->
-                        FilterChip(
-                            selected = tool == value,
-                            onClick = {
-                                tool = value
-                                if (value != EditorTool.TEXT) {
-                                    editorView?.selectedTextId = null
-                                    selectedOverlay = null
-                                }
-                            },
-                            label = { Text(androidx.compose.ui.res.stringResource(strRes)) }
-                        )
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    if (transformedPreview == null) {
+                        Text(stringResource(R.string.editor_preparing), color = Color.White)
                     }
                 }
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(if (landscape) 130.dp else 210.dp)
+                        .height(if (landscape) 130.dp else 215.dp)
                 ) {
                     AnimatedContent(
-                        targetState = tool,
+                        targetState = category,
                         transitionSpec = {
                             fadeIn(animationSpec = tween(180)) togetherWith fadeOut(animationSpec = tween(120))
                         },
-                        label = "EditorToolSwitch"
-                    ) { currentTool ->
+                        label = "EditorCategorySwitch"
+                    ) { currentCategory ->
                         Column(
                             Modifier
                                 .fillMaxSize()
-                                .verticalScroll(rememberScrollState())
-                                .padding(bottom = 24.dp),
-                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            when (currentTool) {
-                                EditorTool.CROP -> CropControls(cropPreset, { label, aspect ->
-                                    cropPreset = label
-                                    editorView?.setCropAspect(aspect)
-                                })
-                                EditorTool.TRANSFORM -> TransformControls(
+                            when (currentCategory) {
+                                EditorCategory.TRANSFORM -> TransformControls(
                                     rotation = rotation,
                                     flipH = flipHorizontal,
                                     flipV = flipVertical,
+                                    cropPreset = cropPreset,
                                     onRotateLeft = { rotation = (rotation - 90 + 360) % 360 },
                                     onRotateRight = { rotation = (rotation + 90) % 360 },
                                     onToggleFlipH = { flipHorizontal = !flipHorizontal },
@@ -263,25 +363,38 @@ fun EditorScreen(image: MediaImage, onClose: () -> Unit, onSaved: (Boolean) -> U
                                         rotation = 0
                                         flipHorizontal = false
                                         flipVertical = false
-                                    }
+                                    },
+                                    onSelectCropAspect = { label, aspect ->
+                                        cropPreset = label
+                                        editorView?.setCropAspect(aspect)
+                                    },
+                                    onOpenResize = { showResizeDialog = true }
                                 )
-                                EditorTool.RESIZE -> ResizeControls(baseWidth, baseHeight, resizeWidth, resizeHeight, lockAspect,
-                                    onWidth = { value ->
-                                        isCustomResized = true
-                                        resizeWidth = value.filter(Char::isDigit)
-                                        if (lockAspect) value.toIntOrNull()?.let { resizeHeight = (it * baseHeight.toFloat() / baseWidth).toInt().toString() }
-                                    }, onHeight = { value ->
-                                        isCustomResized = true
-                                        resizeHeight = value.filter(Char::isDigit)
-                                        if (lockAspect) value.toIntOrNull()?.let { resizeWidth = (it * baseWidth.toFloat() / baseHeight).toInt().toString() }
-                                    }, onLock = { lockAspect = it },
+                                EditorCategory.ADJUST -> AdjustControls(
+                                    brightness = brightness,
+                                    saturation = saturation,
+                                    contrast = contrast,
+                                    warmth = warmth,
+                                    onBrightness = { brightness = it },
+                                    onSaturation = { saturation = it },
+                                    onContrast = { contrast = it },
+                                    onWarmth = { warmth = it },
                                     onReset = {
-                                        isCustomResized = false
-                                        resizeWidth = baseWidth.toString()
-                                        resizeHeight = baseHeight.toString()
+                                        brightness = 0f
+                                        saturation = 1f
+                                        contrast = 1f
+                                        warmth = 0f
                                     }
                                 )
-                                EditorTool.DRAW -> DrawControls(
+                                EditorCategory.MARKUP -> MarkupControls(
+                                    subMode = markupSubMode,
+                                    onSubModeChange = {
+                                        markupSubMode = it
+                                        if (it != MarkupSubMode.TEXT) {
+                                            editorView?.selectedTextId = null
+                                            selectedOverlay = null
+                                        }
+                                    },
                                     brushSize = drawBrushSize,
                                     brushColor = drawColor,
                                     erasing = drawErasing,
@@ -290,9 +403,7 @@ fun EditorScreen(image: MediaImage, onClose: () -> Unit, onSaved: (Boolean) -> U
                                     onErase = { drawErasing = it },
                                     onUndo = { editorView?.undoStroke() },
                                     onRedo = { editorView?.redoStroke() },
-                                    onClear = { editorView?.clearStrokes() }
-                                )
-                                EditorTool.TEXT -> TextControls(
+                                    onClear = { editorView?.clearStrokes() },
                                     selectedOverlay = selectedOverlay,
                                     onAddOrUpdateText = { text, color, bg, size ->
                                         if (selectedOverlay != null) {
@@ -316,18 +427,48 @@ fun EditorScreen(image: MediaImage, onClose: () -> Unit, onSaved: (Boolean) -> U
                                         selectedOverlay = null
                                     }
                                 )
-                                EditorTool.PIXELATE, EditorTool.BLUR -> BrushControls(currentTool, brushSize, strength, erasing,
-                                    onSize = { brushSize = it }, onStrength = { strength = it }, onErase = { erasing = it },
-                                    onUndo = { editorView?.undoStroke() }, onRedo = { editorView?.redoStroke() },
-                                    onClear = { editorView?.clearStrokes() })
-                                else -> AdjustControls(brightness, saturation, contrast, warmth,
-                                    { brightness = it }, { saturation = it }, { contrast = it }, { warmth = it })
+                                EditorCategory.PRIVACY -> PrivacyControls(
+                                    subMode = privacySubMode,
+                                    onSubModeChange = { privacySubMode = it },
+                                    size = brushSize,
+                                    strength = strength,
+                                    erasing = erasing,
+                                    onSize = { brushSize = it },
+                                    onStrength = { strength = it },
+                                    onErase = { erasing = it },
+                                    onUndo = { editorView?.undoStroke() },
+                                    onRedo = { editorView?.redoStroke() },
+                                    onClear = { editorView?.clearStrokes() }
+                                )
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    if (showResizeDialog) {
+        ResizeDialog(
+            baseWidth = baseWidth,
+            baseHeight = baseHeight,
+            currentWidth = resizeWidth,
+            currentHeight = resizeHeight,
+            lockAspect = lockAspect,
+            onDismiss = { showResizeDialog = false },
+            onApply = { w, h ->
+                isCustomResized = true
+                resizeWidth = w
+                resizeHeight = h
+                showResizeDialog = false
+            },
+            onReset = {
+                isCustomResized = false
+                resizeWidth = baseWidth.toString()
+                resizeHeight = baseHeight.toString()
+                showResizeDialog = false
+            }
+        )
     }
 }
 
@@ -336,89 +477,448 @@ private fun TransformControls(
     rotation: Int,
     flipH: Boolean,
     flipV: Boolean,
+    cropPreset: String,
     onRotateLeft: () -> Unit,
     onRotateRight: () -> Unit,
     onToggleFlipH: () -> Unit,
     onToggleFlipV: () -> Unit,
     onReset: () -> Unit,
+    onSelectCropAspect: (String, Float?) -> Unit,
+    onOpenResize: () -> Unit,
 ) {
-    Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_rotate_flip), style = MaterialTheme.typography.titleSmall)
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        OutlinedButton(onClick = onRotateLeft, modifier = Modifier.weight(1f)) {
+        OutlinedButton(
+            onClick = onRotateLeft,
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
+        ) {
             Icon(Icons.AutoMirrored.Outlined.RotateLeft, null, modifier = Modifier.size(18.dp))
-            Text(" " + androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_rotate_left), maxLines = 1)
+            Spacer(Modifier.width(4.dp))
+            Text(stringResource(R.string.editor_rotate_left), maxLines = 1, style = MaterialTheme.typography.bodySmall)
         }
-        OutlinedButton(onClick = onRotateRight, modifier = Modifier.weight(1f)) {
+        OutlinedButton(
+            onClick = onRotateRight,
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 6.dp)
+        ) {
             Icon(Icons.AutoMirrored.Outlined.RotateRight, null, modifier = Modifier.size(18.dp))
-            Text(" " + androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_rotate_right), maxLines = 1)
+            Spacer(Modifier.width(4.dp))
+            Text(stringResource(R.string.editor_rotate_right), maxLines = 1, style = MaterialTheme.typography.bodySmall)
         }
     }
+
     Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         FilterChip(
             selected = flipH,
             onClick = onToggleFlipH,
-            label = { Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_flip_h)) },
-            modifier = Modifier.weight(1f),
+            label = { Text(stringResource(R.string.editor_flip_horizontal), maxLines = 1, style = MaterialTheme.typography.bodySmall) },
+            modifier = Modifier.weight(1f)
         )
         FilterChip(
             selected = flipV,
             onClick = onToggleFlipV,
-            label = { Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_flip_v)) },
-            modifier = Modifier.weight(1f),
+            label = { Text(stringResource(R.string.editor_flip_vertical), maxLines = 1, style = MaterialTheme.typography.bodySmall) },
+            modifier = Modifier.weight(1f)
         )
+        OutlinedButton(
+            onClick = onOpenResize,
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+        ) {
+            Icon(Icons.Outlined.AspectRatio, null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(stringResource(R.string.editor_custom_resize), style = MaterialTheme.typography.bodySmall)
+        }
         if (rotation != 0 || flipH || flipV) {
-            IconButton(onClick = onReset) {
-                Icon(Icons.Outlined.RestartAlt, androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_reset_orientation))
+            IconButton(onClick = onReset, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Outlined.RestartAlt, stringResource(R.string.editor_reset_orientation), modifier = Modifier.size(20.dp))
             }
         }
     }
-}
 
-@Composable private fun CropControls(selected: String, onSelect: (String, Float?) -> Unit) {
-    Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_crop_manual_hint), style = MaterialTheme.typography.titleSmall)
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf("Manual" to null, "Square" to 1f, "4:3" to 4f/3f, "3:4" to 3f/4f, "16:9" to 16f/9f).forEach { (name, ratio) ->
-            FilterChip(selected == name, onClick = { onSelect(name, ratio) }, label = { Text(name) })
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val presets = listOf(
+            stringResource(R.string.editor_crop_manual) to null,
+            "1:1" to 1f,
+            "4:3" to 4f / 3f,
+            "3:4" to 3f / 4f,
+            "16:9" to 16f / 9f,
+            "9:16" to 9f / 16f
+        )
+        presets.forEach { (name, ratio) ->
+            FilterChip(
+                selected = cropPreset == name,
+                onClick = { onSelectCropAspect(name, ratio) },
+                label = { Text(name, style = MaterialTheme.typography.bodySmall) }
+            )
         }
     }
-    Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_crop_help), color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-@Composable private fun ResizeControls(baseWidth: Int, baseHeight: Int, width: String, height: String, locked: Boolean,
-    onWidth: (String) -> Unit, onHeight: (String) -> Unit, onLock: (Boolean) -> Unit, onReset: () -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(width, onWidth, Modifier.weight(1f), label = { Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_width_px)) }, singleLine = true)
-        Text("×")
-        OutlinedTextField(height, onHeight, Modifier.weight(1f), label = { Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_height_px)) }, singleLine = true)
+@Composable
+private fun AdjustControls(
+    brightness: Float,
+    saturation: Float,
+    contrast: Float,
+    warmth: Float,
+    onBrightness: (Float) -> Unit,
+    onSaturation: (Float) -> Unit,
+    onContrast: (Float) -> Unit,
+    onWarmth: (Float) -> Unit,
+    onReset: () -> Unit
+) {
+    val isModified = brightness != 0f || saturation != 1f || contrast != 1f || warmth != 0f
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(stringResource(R.string.editor_category_adjust), style = MaterialTheme.typography.titleSmall)
+        if (isModified) {
+            TextButton(
+                onClick = onReset,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Icon(Icons.Outlined.RestartAlt, null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(stringResource(R.string.editor_reset_adjustments), style = MaterialTheme.typography.bodySmall)
+            }
+        }
     }
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Switch(locked, onLock); Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_lock_aspect))
-        TextButton(onClick = onReset) { Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_original)) }
+
+    AdjustSliderRow(
+        icon = Icons.Outlined.BrightnessMedium,
+        label = stringResource(R.string.editor_brightness),
+        value = brightness,
+        displayValue = "${(brightness * 200).toInt()}%",
+        valueRange = -0.5f..0.5f,
+        onValueChange = onBrightness
+    )
+
+    AdjustSliderRow(
+        icon = Icons.Outlined.Contrast,
+        label = stringResource(R.string.editor_contrast),
+        value = contrast,
+        displayValue = "${((contrast - 1f) * 100).toInt()}%",
+        valueRange = 0.5f..1.5f,
+        onValueChange = onContrast
+    )
+
+    AdjustSliderRow(
+        icon = Icons.Outlined.Palette,
+        label = stringResource(R.string.editor_saturation),
+        value = saturation,
+        displayValue = "${((saturation - 1f) * 100).toInt()}%",
+        valueRange = 0f..2f,
+        onValueChange = onSaturation
+    )
+
+    AdjustSliderRow(
+        icon = Icons.Outlined.WbSunny,
+        label = stringResource(R.string.editor_warmth),
+        value = warmth,
+        displayValue = "${(warmth * 100).toInt()}%",
+        valueRange = -1f..1f,
+        onValueChange = onWarmth
+    )
+}
+
+@Composable
+private fun AdjustSliderRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: Float,
+    displayValue: String,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Icon(icon, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, modifier = Modifier.width(76.dp), style = MaterialTheme.typography.bodySmall)
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = valueRange,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            displayValue,
+            modifier = Modifier.width(42.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
-@Composable private fun BrushControls(tool: EditorTool, size: Float, strength: Float, erasing: Boolean,
-    onSize: (Float) -> Unit, onStrength: (Float) -> Unit, onErase: (Boolean) -> Unit,
-    onUndo: () -> Unit, onRedo: () -> Unit, onClear: () -> Unit) {
-    val effectLabel = if (tool == EditorTool.PIXELATE) androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_brush_pixelation)
-                      else androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_brush_blur)
-    Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_brush_hint, effectLabel),
-        style = MaterialTheme.typography.titleSmall)
-    Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_brush_size, (size * 100).toInt())); Slider(size, onSize, valueRange = .015f.. .25f)
-    Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_strength, strength.toInt())); Slider(strength, onStrength, valueRange = 4f..48f)
+@Composable
+private fun MarkupControls(
+    subMode: MarkupSubMode,
+    onSubModeChange: (MarkupSubMode) -> Unit,
+    brushSize: Float,
+    brushColor: Int,
+    erasing: Boolean,
+    onSize: (Float) -> Unit,
+    onColor: (Int) -> Unit,
+    onErase: (Boolean) -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    onClear: () -> Unit,
+    selectedOverlay: TextOverlay?,
+    onAddOrUpdateText: (String, Int, Int, Float) -> Unit,
+    onDeleteText: () -> Unit,
+    onClearAllText: () -> Unit,
+    onDeselect: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        FilterChip(
+            selected = subMode == MarkupSubMode.BRUSH,
+            onClick = { onSubModeChange(MarkupSubMode.BRUSH) },
+            label = { Text(stringResource(R.string.editor_mode_draw)) },
+            modifier = Modifier.weight(1f)
+        )
+        FilterChip(
+            selected = subMode == MarkupSubMode.TEXT,
+            onClick = { onSubModeChange(MarkupSubMode.TEXT) },
+            label = { Text(stringResource(R.string.editor_mode_text)) },
+            modifier = Modifier.weight(1f)
+        )
+    }
+
+    if (subMode == MarkupSubMode.BRUSH) {
+        DrawControls(
+            brushSize = brushSize,
+            brushColor = brushColor,
+            erasing = erasing,
+            onSize = onSize,
+            onColor = onColor,
+            onErase = onErase,
+            onUndo = onUndo,
+            onRedo = onRedo,
+            onClear = onClear
+        )
+    } else {
+        TextControls(
+            selectedOverlay = selectedOverlay,
+            onAddOrUpdateText = onAddOrUpdateText,
+            onDeleteText = onDeleteText,
+            onClearAllText = onClearAllText,
+            onDeselect = onDeselect
+        )
+    }
+}
+
+@Composable
+private fun PrivacyControls(
+    subMode: PrivacySubMode,
+    onSubModeChange: (PrivacySubMode) -> Unit,
+    size: Float,
+    strength: Float,
+    erasing: Boolean,
+    onSize: (Float) -> Unit,
+    onStrength: (Float) -> Unit,
+    onErase: (Boolean) -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    onClear: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        FilterChip(
+            selected = subMode == PrivacySubMode.BLUR,
+            onClick = { onSubModeChange(PrivacySubMode.BLUR) },
+            label = { Text(stringResource(R.string.editor_mode_blur)) },
+            modifier = Modifier.weight(1f)
+        )
+        FilterChip(
+            selected = subMode == PrivacySubMode.PIXELATE,
+            onClick = { onSubModeChange(PrivacySubMode.PIXELATE) },
+            label = { Text(stringResource(R.string.editor_mode_pixelate)) },
+            modifier = Modifier.weight(1f)
+        )
+    }
+
+    val tool = if (subMode == PrivacySubMode.BLUR) EditorTool.BLUR else EditorTool.PIXELATE
+    BrushControls(
+        tool = tool,
+        size = size,
+        strength = strength,
+        erasing = erasing,
+        onSize = onSize,
+        onStrength = onStrength,
+        onErase = onErase,
+        onUndo = onUndo,
+        onRedo = onRedo,
+        onClear = onClear
+    )
+}
+
+@Composable
+private fun ResizeDialog(
+    baseWidth: Int,
+    baseHeight: Int,
+    currentWidth: String,
+    currentHeight: String,
+    lockAspect: Boolean,
+    onDismiss: () -> Unit,
+    onApply: (String, String) -> Unit,
+    onReset: () -> Unit
+) {
+    var width by remember { mutableStateOf(currentWidth) }
+    var height by remember { mutableStateOf(currentHeight) }
+    var locked by remember { mutableStateOf(lockAspect) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.editor_resize_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = width,
+                        onValueChange = { value ->
+                            val clean = value.filter(Char::isDigit)
+                            width = clean
+                            if (locked && baseWidth > 0) {
+                                clean.toIntOrNull()?.let {
+                                    height = (it * baseHeight.toFloat() / baseWidth).toInt().toString()
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        label = { Text(stringResource(R.string.editor_width_px)) },
+                        singleLine = true
+                    )
+                    Text("×")
+                    OutlinedTextField(
+                        value = height,
+                        onValueChange = { value ->
+                            val clean = value.filter(Char::isDigit)
+                            height = clean
+                            if (locked && baseHeight > 0) {
+                                clean.toIntOrNull()?.let {
+                                    width = (it * baseWidth.toFloat() / baseHeight).toInt().toString()
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        label = { Text(stringResource(R.string.editor_height_px)) },
+                        singleLine = true
+                    )
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Switch(checked = locked, onCheckedChange = { locked = it })
+                    Text(stringResource(R.string.editor_lock_aspect), style = MaterialTheme.typography.bodyMedium)
+                }
+                Text(
+                    text = "${stringResource(R.string.editor_original)}: $baseWidth × $baseHeight px",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                onApply(width, height)
+            }) {
+                Text(stringResource(R.string.editor_apply))
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = {
+                    width = baseWidth.toString()
+                    height = baseHeight.toString()
+                    onReset()
+                }) {
+                    Text(stringResource(R.string.editor_original))
+                }
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun BrushControls(
+    tool: EditorTool,
+    size: Float,
+    strength: Float,
+    erasing: Boolean,
+    onSize: (Float) -> Unit,
+    onStrength: (Float) -> Unit,
+    onErase: (Boolean) -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    onClear: () -> Unit
+) {
+    val effectLabel = if (tool == EditorTool.PIXELATE) stringResource(R.string.editor_brush_pixelation)
+    else stringResource(R.string.editor_brush_blur)
+    Text(
+        stringResource(R.string.editor_brush_hint, effectLabel),
+        style = MaterialTheme.typography.titleSmall
+    )
+    Text(
+        stringResource(R.string.editor_brush_size, (size * 100).toInt()),
+        style = MaterialTheme.typography.bodySmall
+    )
+    Slider(value = size, onValueChange = onSize, valueRange = .015f.. .25f)
+    Text(
+        stringResource(R.string.editor_strength, strength.toInt()),
+        style = MaterialTheme.typography.bodySmall
+    )
+    Slider(value = strength, onValueChange = onStrength, valueRange = 4f..48f)
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(erasing, onClick = { onErase(!erasing) }, label = { Text(if (erasing) androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_eraser_on) else androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_erase)) })
-        IconButton(onClick = onUndo) { Icon(Icons.AutoMirrored.Outlined.Undo, androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_undo_stroke)) }
-        IconButton(onClick = onRedo) { Icon(Icons.AutoMirrored.Outlined.Redo, androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_redo_stroke)) }
-        IconButton(onClick = onClear) { Icon(Icons.Outlined.DeleteSweep, androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_clear_effects)) }
+        FilterChip(
+            selected = erasing,
+            onClick = { onErase(!erasing) },
+            label = {
+                Text(
+                    if (erasing) stringResource(R.string.editor_eraser_on)
+                    else stringResource(R.string.editor_erase)
+                )
+            }
+        )
+        IconButton(onClick = onUndo) {
+            Icon(Icons.AutoMirrored.Outlined.Undo, stringResource(R.string.editor_undo_stroke))
+        }
+        IconButton(onClick = onRedo) {
+            Icon(Icons.AutoMirrored.Outlined.Redo, stringResource(R.string.editor_redo_stroke))
+        }
+        IconButton(onClick = onClear) {
+            Icon(Icons.Outlined.DeleteSweep, stringResource(R.string.editor_clear_effects))
+        }
     }
 }
 
@@ -450,13 +950,13 @@ private fun DrawControls(
     }
 
     Text(
-        stringResource(com.iris.gallery.R.string.editor_brush_size, (brushSize * 1000).toInt()),
+        stringResource(R.string.editor_brush_size, (brushSize * 1000).toInt()),
         style = MaterialTheme.typography.titleSmall
     )
     Slider(brushSize, onSize, valueRange = 0.005f..0.12f)
 
     Text(
-        stringResource(com.iris.gallery.R.string.editor_draw_color),
+        stringResource(R.string.editor_draw_color),
         style = MaterialTheme.typography.titleSmall
     )
     Row(
@@ -507,19 +1007,19 @@ private fun DrawControls(
             onClick = { onErase(!erasing) },
             label = {
                 Text(
-                    if (erasing) stringResource(com.iris.gallery.R.string.editor_eraser_on)
-                    else stringResource(com.iris.gallery.R.string.editor_erase)
+                    if (erasing) stringResource(R.string.editor_eraser_on)
+                    else stringResource(R.string.editor_erase)
                 )
             }
         )
         IconButton(onClick = onUndo) {
-            Icon(Icons.AutoMirrored.Outlined.Undo, stringResource(com.iris.gallery.R.string.editor_undo_stroke))
+            Icon(Icons.AutoMirrored.Outlined.Undo, stringResource(R.string.editor_undo_stroke))
         }
         IconButton(onClick = onRedo) {
-            Icon(Icons.AutoMirrored.Outlined.Redo, stringResource(com.iris.gallery.R.string.editor_redo_stroke))
+            Icon(Icons.AutoMirrored.Outlined.Redo, stringResource(R.string.editor_redo_stroke))
         }
         IconButton(onClick = onClear) {
-            Icon(Icons.Outlined.DeleteSweep, stringResource(com.iris.gallery.R.string.editor_clear_effects))
+            Icon(Icons.Outlined.DeleteSweep, stringResource(R.string.editor_clear_effects))
         }
     }
 }
@@ -579,7 +1079,7 @@ private fun TextControls(
                     onAddOrUpdateText(it, textColor, computedBgColor, textSizeRatio)
                 }
             },
-            placeholder = { Text(stringResource(com.iris.gallery.R.string.editor_text_hint)) },
+            placeholder = { Text(stringResource(R.string.editor_text_hint)) },
             modifier = Modifier.weight(1f),
             singleLine = true,
             shape = RoundedCornerShape(12.dp)
@@ -593,14 +1093,14 @@ private fun TextControls(
             enabled = textInput.isNotBlank()
         ) {
             Text(
-                if (selectedOverlay != null) stringResource(com.iris.gallery.R.string.editor_update_text)
-                else stringResource(com.iris.gallery.R.string.editor_add_text)
+                if (selectedOverlay != null) stringResource(R.string.editor_update_text)
+                else stringResource(R.string.editor_add_text)
             )
         }
     }
 
     Text(
-        stringResource(com.iris.gallery.R.string.editor_text_size, (textSizeRatio * 1000).toInt()),
+        stringResource(R.string.editor_text_size, (textSizeRatio * 1000).toInt()),
         style = MaterialTheme.typography.titleSmall
     )
     Slider(
@@ -621,7 +1121,7 @@ private fun TextControls(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(stringResource(com.iris.gallery.R.string.editor_draw_color) + ":", style = MaterialTheme.typography.bodySmall)
+        Text(stringResource(R.string.editor_draw_color) + ":", style = MaterialTheme.typography.bodySmall)
         colors.forEach { c ->
             Box(
                 modifier = Modifier
@@ -663,7 +1163,7 @@ private fun TextControls(
                     onAddOrUpdateText(textInput, textColor, android.graphics.Color.argb(160, 0, 0, 0), textSizeRatio)
                 }
             },
-            label = { Text(stringResource(com.iris.gallery.R.string.editor_text_bg_dark)) }
+            label = { Text(stringResource(R.string.editor_text_bg_dark)) }
         )
         FilterChip(
             selected = bgStyle == 1,
@@ -673,7 +1173,7 @@ private fun TextControls(
                     onAddOrUpdateText(textInput, textColor, android.graphics.Color.WHITE, textSizeRatio)
                 }
             },
-            label = { Text(stringResource(com.iris.gallery.R.string.editor_text_bg_light)) }
+            label = { Text(stringResource(R.string.editor_text_bg_light)) }
         )
         FilterChip(
             selected = bgStyle == 0,
@@ -683,41 +1183,73 @@ private fun TextControls(
                     onAddOrUpdateText(textInput, textColor, 0, textSizeRatio)
                 }
             },
-            label = { Text(stringResource(com.iris.gallery.R.string.editor_text_bg_none)) }
+            label = { Text(stringResource(R.string.editor_text_bg_none)) }
         )
         if (selectedOverlay != null) {
             IconButton(onClick = onDeleteText) {
-                Icon(Icons.Outlined.Delete, stringResource(com.iris.gallery.R.string.editor_delete_text))
+                Icon(Icons.Outlined.Delete, stringResource(R.string.editor_delete_text))
             }
             TextButton(onClick = onDeselect) {
-                Text(stringResource(com.iris.gallery.R.string.editor_text_new))
+                Text(stringResource(R.string.editor_text_new))
             }
         }
     }
-}
-
-@Composable private fun AdjustControls(brightness: Float, saturation: Float, contrast: Float, warmth: Float,
-    onBrightness: (Float) -> Unit, onSaturation: (Float) -> Unit, onContrast: (Float) -> Unit, onWarmth: (Float) -> Unit) {
-    Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_brightness)); Slider(brightness, onBrightness, valueRange = -.5f.. .5f)
-    Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_saturation)); Slider(saturation, onSaturation, valueRange = 0f..2f)
-    Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_contrast)); Slider(contrast, onContrast, valueRange = .5f..1.5f)
-    Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_warmth)); Slider(warmth, onWarmth, valueRange = -1f..1f)
 }
 
 private suspend fun loadPreview(context: Context, image: MediaImage): Bitmap? = withContext(Dispatchers.IO) {
     val isFile = image.uri.scheme == "file" || image.path.startsWith(context.filesDir.absolutePath)
-    if (Build.VERSION.SDK_INT >= 28) {
-        val source = if (isFile) ImageDecoder.createSource(java.io.File(image.path))
-                     else ImageDecoder.createSource(context.contentResolver, image.uri)
-        ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
-            val scale = minOf(1f, 1600f / maxOf(info.size.width, info.size.height))
-            decoder.setTargetSize((info.size.width * scale).toInt().coerceAtLeast(1), (info.size.height * scale).toInt().coerceAtLeast(1))
-            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+    val standardBitmap = runCatching {
+        if (Build.VERSION.SDK_INT >= 28) {
+            val source = if (isFile) ImageDecoder.createSource(File(image.path))
+            else ImageDecoder.createSource(context.contentResolver, image.uri)
+            ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                val scale = minOf(1f, 1600f / maxOf(info.size.width, info.size.height))
+                decoder.setTargetSize((info.size.width * scale).toInt().coerceAtLeast(1), (info.size.height * scale).toInt().coerceAtLeast(1))
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            }
+        } else {
+            if (isFile) BitmapFactory.decodeFile(image.path)
+            else context.contentResolver.openInputStream(image.uri).use(BitmapFactory::decodeStream)
         }
-    } else {
-        if (isFile) BitmapFactory.decodeFile(image.path)
-        else context.contentResolver.openInputStream(image.uri).use(BitmapFactory::decodeStream)
-    }
+    }.getOrNull()
+
+    if (standardBitmap != null) return@withContext standardBitmap
+
+    // Fallback using AvifDecoder if standard Android decoders fail (e.g. yuv422p AVIF)
+    runCatching {
+        val bytes = if (isFile) {
+            File(image.path).readBytes()
+        } else {
+            context.contentResolver.openInputStream(image.uri)?.use { it.readBytes() }
+        }
+        if (bytes != null && bytes.isNotEmpty()) {
+            val buffer = ByteBuffer.allocateDirect(bytes.size).apply {
+                put(bytes)
+                flip()
+            }
+            if (AvifDecoder.isAvifImage(buffer)) {
+                val info = AvifDecoder.Info()
+                if (AvifDecoder.getInfo(buffer, bytes.size, info)) {
+                    val scale = minOf(1f, 1600f / maxOf(info.width, info.height))
+                    val targetW = (info.width * scale).toInt().coerceAtLeast(1)
+                    val targetH = (info.height * scale).toInt().coerceAtLeast(1)
+                    val fullBitmap = Bitmap.createBitmap(info.width, info.height, Bitmap.Config.ARGB_8888)
+                    if (AvifDecoder.decode(buffer, bytes.size, fullBitmap)) {
+                        if (targetW != info.width || targetH != info.height) {
+                            val scaled = Bitmap.createScaledBitmap(fullBitmap, targetW, targetH, true)
+                            fullBitmap.recycle()
+                            scaled
+                        } else {
+                            fullBitmap
+                        }
+                    } else {
+                        fullBitmap.recycle()
+                        null
+                    }
+                } else null
+            } else null
+        } else null
+    }.getOrNull()
 }
 
 private suspend fun saveEditedCopy(
@@ -737,16 +1269,40 @@ private suspend fun saveEditedCopy(
     textOverlays: List<TextOverlay>
 ) = withContext(Dispatchers.IO) {
     val isFile = image.uri.scheme == "file" || image.path.startsWith(context.filesDir.absolutePath)
-    val rawSource = if (Build.VERSION.SDK_INT >= 28) {
-        val source = if (isFile) ImageDecoder.createSource(java.io.File(image.path))
-                     else ImageDecoder.createSource(context.contentResolver, image.uri)
-        ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
-            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+    val rawSource = runCatching {
+        if (Build.VERSION.SDK_INT >= 28) {
+            val source = if (isFile) ImageDecoder.createSource(File(image.path))
+            else ImageDecoder.createSource(context.contentResolver, image.uri)
+            ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            }
+        } else {
+            if (isFile) BitmapFactory.decodeFile(image.path) ?: error("Could not decode image")
+            else context.contentResolver.openInputStream(image.uri).use(BitmapFactory::decodeStream) ?: error("Could not decode image")
         }
-    } else {
-        if (isFile) BitmapFactory.decodeFile(image.path) ?: error("Could not decode image")
-        else context.contentResolver.openInputStream(image.uri).use(BitmapFactory::decodeStream) ?: error("Could not decode image")
-    }
+    }.getOrNull() ?: runCatching {
+        val bytes = if (isFile) {
+            File(image.path).readBytes()
+        } else {
+            context.contentResolver.openInputStream(image.uri)?.use { it.readBytes() }
+        }
+        if (bytes != null && bytes.isNotEmpty()) {
+            val buffer = ByteBuffer.allocateDirect(bytes.size).apply {
+                put(bytes)
+                flip()
+            }
+            val info = AvifDecoder.Info()
+            if (AvifDecoder.getInfo(buffer, bytes.size, info)) {
+                val bmp = Bitmap.createBitmap(info.width, info.height, Bitmap.Config.ARGB_8888)
+                if (AvifDecoder.decode(buffer, bytes.size, bmp)) {
+                    bmp
+                } else {
+                    bmp.recycle()
+                    null
+                }
+            } else null
+        } else null
+    }.getOrNull() ?: error("Could not decode image")
 
     val matrix = Matrix()
     if (rotation != 0) matrix.postRotate(rotation.toFloat())
@@ -766,9 +1322,18 @@ private suspend fun saveEditedCopy(
     val cropped = Bitmap.createBitmap(source, left, top, cropWidth, cropHeight)
     val adjusted = Bitmap.createBitmap(cropped.width, cropped.height, Bitmap.Config.ARGB_8888)
     val colors = ColorMatrix().apply { setSaturation(saturation) }
-    val shift = brightness * 255f; val pivot = (1f - contrast) * 128f
-    colors.postConcat(ColorMatrix(floatArrayOf(contrast,0f,0f,0f,shift + pivot + warmth * 36f,
-        0f,contrast,0f,0f,shift + pivot, 0f,0f,contrast,0f,shift + pivot - warmth * 36f, 0f,0f,0f,1f,0f)))
+    val shift = brightness * 255f
+    val pivot = (1f - contrast) * 128f
+    colors.postConcat(
+        ColorMatrix(
+            floatArrayOf(
+                contrast, 0f, 0f, 0f, shift + pivot + warmth * 36f,
+                0f, contrast, 0f, 0f, shift + pivot,
+                0f, 0f, contrast, 0f, shift + pivot - warmth * 36f,
+                0f, 0f, 0f, 1f, 0f
+            )
+        )
+    )
     Canvas(adjusted).drawBitmap(cropped, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG).apply { colorFilter = ColorMatrixColorFilter(colors) })
     val width = requestedWidth?.coerceIn(1, 16384) ?: adjusted.width
     val height = requestedHeight?.coerceIn(1, 16384) ?: adjusted.height
@@ -799,8 +1364,10 @@ private suspend fun saveEditedCopy(
         }
         context.contentResolver.update(uri, updateValues, null, null)
     }
-    if (source !== cropped) source.recycle(); if (cropped !== adjusted) cropped.recycle()
-    if (adjusted !== resized) adjusted.recycle(); resized.recycle()
+    if (source !== cropped) source.recycle()
+    if (cropped !== adjusted) cropped.recycle()
+    if (adjusted !== resized) adjusted.recycle()
+    resized.recycle()
 }
 
 private fun renderBrushes(target: Bitmap, strokes: List<BrushStroke>, crop: RectF) {
@@ -832,17 +1399,30 @@ private fun renderBrushes(target: Bitmap, strokes: List<BrushStroke>, crop: Rect
             return@forEach
         }
         val effect = if (stroke.effect == BrushEffect.PIXELATE) createPixelatedBitmap(target, stroke.strength)
-            else createBlurredBitmap(target, stroke.strength)
+        else createBlurredBitmap(target, stroke.strength)
         val shader = BitmapShader(effect, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND; strokeWidth = stroke.radius / crop.width() * target.width; this.shader = shader }
-        val path = Path(); var visible = false
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            strokeWidth = stroke.radius / crop.width() * target.width
+            this.shader = shader
+        }
+        val path = Path()
+        var visible = false
         stroke.points.forEach { point ->
             val x = (point.x - crop.left) / crop.width() * target.width
             val y = (point.y - crop.top) / crop.height() * target.height
-            if (!visible) { path.moveTo(x, y); path.lineTo(x + .1f, y + .1f); visible = true } else path.lineTo(x, y)
+            if (!visible) {
+                path.moveTo(x, y)
+                path.lineTo(x + .1f, y + .1f)
+                visible = true
+            } else {
+                path.lineTo(x, y)
+            }
         }
-        canvas.drawPath(path, paint); effect.recycle()
+        canvas.drawPath(path, paint)
+        effect.recycle()
     }
 }
 

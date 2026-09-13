@@ -2081,8 +2081,12 @@ private fun GalleryScaffold(
                                     gridSpacing = settings.gridSpacing,
                                     showVideoDuration = settings.showVideoDurationBadge,
                                     showFormatBadge = settings.showMediaFormatBadge,
+                                    selectedIds = selectedIds,
+                                    onToggleSelection = ::toggleSelection,
+                                    onSetSelection = ::setSelection,
                                 ) {
-                                    viewerImages = memories; selectedId = it.id
+                                    if (selectedIds.isNotEmpty()) toggleSelection(it.id)
+                                    else { viewerImages = memories; selectedId = it.id }
                                 }
                             }
                         }

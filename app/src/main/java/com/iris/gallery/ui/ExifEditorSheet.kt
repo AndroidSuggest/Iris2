@@ -107,8 +107,15 @@ fun ExifEditorSheet(
     var software by remember(image.id, exif) { mutableStateOf(exif?.software ?: "") }
 
     // Camera & Lens State
-    var cameraMake by remember(image.id, exif) { mutableStateOf(exif?.cameraMake ?: "") }
-    var cameraModel by remember(image.id, exif) { mutableStateOf(exif?.cameraModel ?: "") }
+    val initialMake = exif?.cameraMake.orEmpty()
+    val initialModelRaw = exif?.cameraModel.orEmpty()
+    val initialModel = if (initialMake.isNotBlank() && initialModelRaw.startsWith(initialMake, ignoreCase = true)) {
+        initialModelRaw.substring(initialMake.length).trim().ifBlank { initialModelRaw }
+    } else {
+        initialModelRaw
+    }
+    var cameraMake by remember(image.id, exif) { mutableStateOf(initialMake) }
+    var cameraModel by remember(image.id, exif) { mutableStateOf(initialModel) }
     var lensModel by remember(image.id, exif) { mutableStateOf(exif?.lensModel ?: "") }
     var isoStr by remember(image.id, exif) { mutableStateOf(exif?.isoValue?.toString() ?: "") }
     var apertureStr by remember(image.id, exif) { mutableStateOf(exif?.apertureValue?.let { "%.1f".format(Locale.US, it).replace(".0", "") } ?: "") }
@@ -135,8 +142,8 @@ fun ExifEditorSheet(
         copyright = exif?.copyright ?: ""
         software = exif?.software ?: ""
 
-        cameraMake = exif?.cameraMake ?: ""
-        cameraModel = exif?.cameraModel ?: ""
+        cameraMake = initialMake
+        cameraModel = initialModel
         lensModel = exif?.lensModel ?: ""
         isoStr = exif?.isoValue?.toString() ?: ""
         apertureStr = exif?.apertureValue?.let { "%.1f".format(Locale.US, it).replace(".0", "") } ?: ""

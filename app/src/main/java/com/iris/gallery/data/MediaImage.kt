@@ -315,9 +315,16 @@ fun loadExifMetadata(context: android.content.Context, uri: Uri): ExifMetadata {
             val lng = latLong?.getOrNull(1)
             val altitude = exif.getAltitude(Double.NaN).takeUnless { it.isNaN() }
 
+            val cleanModel = if (!make.isNullOrBlank() && !model.isNullOrBlank() && model.startsWith(make, ignoreCase = true)) {
+                val stripped = model.substring(make.length).trim()
+                stripped.ifBlank { model }
+            } else {
+                model
+            }
+
             ExifMetadata(
                 title = documentName,
-                cameraModel = model,
+                cameraModel = cleanModel,
                 cameraMake = make,
                 lensModel = lensModel,
                 userComment = userComment,
