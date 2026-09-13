@@ -188,7 +188,7 @@
     <string name="duplicates_groups_count">%1$d groupes</string>
     <string name="duplicates_suggested_removal">%1$d suggérés pour suppression · %2$s</string>
     <string name="duplicates_review_delete">Vérifier la suppression</string>
-    <string name="duplicates_exact_copies">Copies conformes</string>
+    <string name="duplicates_exact_copies">Copies identiques</string>
     <string name="duplicates_similar_photos">Photos similaires</string>
     <string name="duplicates_save_up_to">Économisez jusqu\'à %1$s</string>
     <string name="duplicates_remove">Supprimer</string>
@@ -266,8 +266,8 @@
     <string name="settings_date_format_dialog_title">Choisir le format de date</string>
     <string name="settings_date_format_system">Automatique (Système / Localisé)</string>
     <string name="settings_date_format_dmy">Jour Mois Année (31 août 2026)</string>
-    <string name="settings_date_format_mdy">Mois Jour, Année (Août 31, 2026)</string>
-    <string name="settings_date_format_ymd">Année Mois Jour (2026 Août 31)</string>
+    <string name="settings_date_format_mdy">Mois Jour, Année (août 31, 2026)</string>
+    <string name="settings_date_format_ymd">Année Mois Jour (2026 août 31)</string>
     <string name="settings_date_format_num_dmy">Numérique (31/08/2026)</string>
     <string name="settings_date_format_num_mdy">Numérique (08/31/2026)</string>
     <string name="settings_date_format_num_ymd">Numérique (2026-08-31)</string>
@@ -321,12 +321,12 @@
     <string name="settings_preferred_editor_desc">Choisir si appuyer sur modifier ouvre Iris Editor ou une application externe</string>
     <string name="settings_editor_always_ask">Toujours demander</string>
     <string name="settings_editor_builtin">Iris Editor (Intégré)</string>
-    <string name="settings_editor_external">Application externe</string>
+    <string name="settings_editor_external">Éditeur externe</string>
 
     <string name="editor_choice_title">Modifier la photo</string>
     <string name="editor_builtin_title">Iris Editor</string>
     <string name="editor_builtin_desc">Filtres intégrés, recadrage et réglages des couleurs</string>
-    <string name="editor_external_title">Application externe</string>
+    <string name="editor_external_title">Éditeur externe</string>
     <string name="editor_external_desc">Ouvrir dans ImageToolbox, Lightroom, Snapseed, etc.</string>
     <string name="editor_remember_choice">Toujours utiliser cette option</string>
     <string name="edit_with_external_title">Modifier la photo avec…</string>
@@ -343,7 +343,7 @@
     <!-- App Lock & PIN Dialogs -->
     <string name="app_lock_title">Déverrouiller Iris Gallery</string>
     <string name="app_lock_picker_title">Déverrouiller pour sélectionner des médias</string>
-    <string name="app_lock_welcome_back">Bon retour</string>
+    <string name="app_lock_welcome_back">Heureux de vous revoir !</string>
     <string name="app_lock_select_media">Sélectionner des médias</string>
     <string name="app_lock_unlocking">Déverrouillage…</string>
     <string name="app_lock_enter_pin_select">Entrez le code PIN de la galerie pour sélectionner des photos</string>
@@ -384,6 +384,8 @@
     <string name="editor_tool_crop">Recadrer</string>
     <string name="editor_tool_transform">Transformer</string>
     <string name="editor_tool_resize">Redimensionner</string>
+    <string name="editor_tool_draw">Dessiner</string>
+    <string name="editor_tool_text">Texte</string>
     <string name="editor_tool_pixelate">Pixelliser</string>
     <string name="editor_tool_blur">Flouter</string>
     <string name="editor_rotate_flip">Pivoter et retourner</string>
@@ -410,6 +412,17 @@
     <string name="editor_undo_stroke">Annuler le trait</string>
     <string name="editor_redo_stroke">Rétablir le trait</string>
     <string name="editor_clear_effects">Effacer les effets</string>
+    <string name="editor_draw_color">Couleur</string>
+    <string name="editor_text_hint">Saisir le texte ici…</string>
+    <string name="editor_add_text">Ajouter le texte</string>
+    <string name="editor_update_text">Modifier le texte</string>
+    <string name="editor_delete_text">Supprimer le texte</string>
+    <string name="editor_text_size">Taille du texte · %1$d</string>
+    <string name="editor_text_bg">Arrière-plan</string>
+    <string name="editor_text_bg_dark">Fond sombre</string>
+    <string name="editor_text_bg_light">Fond clair</string>
+    <string name="editor_text_bg_none">Sans fond</string>
+    <string name="editor_text_new">+ Nouveau</string>
     <string name="editor_brightness">Luminosité</string>
     <string name="editor_saturation">Saturation</string>
     <string name="editor_contrast">Contraste</string>
@@ -486,13 +499,13 @@
 
     <!-- Album Operations -->
     <string name="action_move_to_album">Déplacer vers un album</string>
-    <string name="action_copy_to_album">Copier vers un album</string>
+    <string name="action_copy_to_album">Copier vers un autre album</string>
     <string name="action_create_album">Nouvel album</string>
     <string name="create_album_title">Créer un nouvel album</string>
     <string name="create_album_name_hint">Nom de l\'album</string>
     <string name="create_album_button">Créer</string>
     <string name="move_to_album_title">Déplacer vers l\'album</string>
-    <string name="copy_to_album_title">Copier vers l\'album</string>
+    <string name="copy_to_album_title">Copier vers un autre album</string>
     <string name="toast_moved_to_album_single">Élément déplacé vers %1$s</string>
     <string name="toast_moved_to_album_multiple">%1$d éléments déplacés vers %2$s</string>
     <string name="toast_copied_to_album_single">Élément copié vers %1$s</string>
@@ -501,4 +514,138 @@
     <string name="search_files_placeholder">Rechercher photos, vidéos, formats…</string>
     <string name="empty_search_files">Aucun fichier correspondant à "%1$s"</string>
     <string name="action_search">Rechercher</string>
+
+    <!-- Details & EXIF -->
+    <string name="details_file_info">Informations sur le fichier</string>
+    <string name="details_camera_exif">Appareil photo &amp; EXIF</string>
+    <string name="details_user_comment">Commentaire utilisateur</string>
+    <string name="details_user_comment_hint">Aucun commentaire ajouté</string>
+    <string name="details_lens">Objectif</string>
+    <string name="details_artist">Auteur·rice / Artiste</string>
+    <string name="details_copyright">Droits d\'auteur</string>
+    <string name="details_software">Logiciel</string>
+    <string name="details_altitude">Altitude</string>
+    <string name="details_white_balance">Balance des blancs</string>
+    <string name="details_white_balance_auto">Auto</string>
+    <string name="details_white_balance_manual">Manuel</string>
+    <string name="details_megapixels">%1$s Mpx</string>
+    <string name="details_image_properties">Propriétés de l\'image</string>
+    <string name="details_modified">Modifié</string>
+    <string name="details_image_unique_id">Identifiant unique de l\'image</string>
+    <string name="details_exif_user_comment">Commentaire utilisateur EXIF</string>
+    <string name="details_xp_comment">Commentaire XP</string>
+    <string name="details_jpeg_comment">Commentaire JPEG</string>
+    <string name="details_jpeg_comment_numbered">Commentaire JPEG %1$d</string>
+
+    <!-- EXIF Editor -->
+    <string name="exif_editor_title">Éditeur EXIF et métadonnées</string>
+    <string name="exif_editor_subtitle">Afficher, modifier ou supprimer les balises de métadonnées</string>
+    <string name="exif_tab_notes">Notes et infos</string>
+    <string name="exif_tab_camera">Appareil et objectif</string>
+    <string name="exif_tab_location">Localisation</string>
+    <string name="exif_tab_file">Fichier et date</string>
+    <string name="exif_user_comment_label">Commentaire / Note utilisateur</string>
+    <string name="exif_user_comment_hint">Écrire des commentaires personnels, souvenirs ou notes d\'archivage…</string>
+    <string name="exif_image_desc_label">Description de l\'image</string>
+    <string name="exif_image_desc_hint">Légende ou description de l\'image</string>
+    <string name="exif_artist_label">Auteur·rice / Photographe</string>
+    <string name="exif_artist_hint">ex. Jean Dupont</string>
+    <string name="exif_copyright_label">Mention de droit d\'auteur</string>
+    <string name="exif_copyright_hint">ex. © 2026 Mohamad Oday</string>
+    <string name="exif_software_label">Logiciel / Outil</string>
+    <string name="exif_camera_make_label">Fabricant de l\'appareil</string>
+    <string name="exif_camera_make_hint">ex. Sony, Canon, Google, Nikon</string>
+    <string name="exif_camera_model_label">Modèle de l\'appareil</string>
+    <string name="exif_camera_model_hint">ex. Pixel 9 Pro, ILCE-7M4</string>
+    <string name="exif_lens_model_label">Modèle de l\'objectif</string>
+    <string name="exif_lens_model_hint">ex. FE 24-70mm F2.8 GM II</string>
+    <string name="exif_iso_label">Sensibilité ISO</string>
+    <string name="exif_aperture_label">Ouverture (valeur f)</string>
+    <string name="exif_shutter_label">Vitesse d\'obturation (ex. 1/250 ou 0.004)</string>
+    <string name="exif_focal_length_label">Distance focale (mm)</string>
+    <string name="exif_latitude_label">Latitude (°)</string>
+    <string name="exif_longitude_label">Longitude (°)</string>
+    <string name="exif_altitude_label">Altitude (mètres)</string>
+    <string name="exif_remove_gps">Supprimer les données de localisation</string>
+    <string name="exif_remove_gps_desc">Supprimer les coordonnées GPS de cette photo pour préserver la vie privée</string>
+    <string name="exif_strip_all">Supprimer tout l\'EXIF</string>
+    <string name="exif_strip_all_desc">Efface les caractéristiques de l\'appareil, l\'auteur, les commentaires et le lieu pour préserver la vie privée</string>
+    <string name="exif_strip_all_dialog_title">Supprimer toutes les métadonnées EXIF ?</string>
+    <string name="exif_strip_all_dialog_desc">Cela supprimera tous les réglages intégrés de l\'appareil, les commentaires, les informations sur l\'auteur et les balises de localisation GPS de cette photo.</string>
+    <string name="exif_set_current_time">Définir à l\'heure actuelle</string>
+    <string name="exif_revert_changes">Rétablir</string>
+    <string name="toast_metadata_updated">Métadonnées et balises EXIF mises à jour</string>
+    <string name="toast_metadata_failed">Impossible de mettre à jour les métadonnées</string>
+
+    <!-- Settings Additions -->
+    <string name="settings_photos_tile_size">Taille des vignettes de photos</string>
+    <string name="settings_albums_tile_size">Taille des vignettes d\'albums</string>
+    <string name="settings_abbreviate_day_title">Abréger le jour de la semaine</string>
+    <string name="settings_abbreviate_day_desc">Utiliser des noms de jour abrégés (ex. mar. au lieu de mardi)</string>
+    <string name="settings_smart_year_title">Affichage intelligent de l\'année</string>
+    <string name="settings_smart_year_desc">Masquer l\'année pour les photos de l\'année en cours et l\'afficher pour les années précédentes</string>
+    <string name="settings_show_user_comments_title">Afficher les commentaires en superposition</string>
+    <string name="settings_show_user_comments_desc">Afficher les commentaires et notes intégrés directement sur les photos dans la visionneuse</string>
+    <string name="settings_show_filmstrip_title">Bande de vignettes</string>
+    <string name="settings_show_filmstrip_desc">Afficher un carrousel interactif de miniatures au-dessus des commandes pour un défilement rapide</string>
+    <string name="viewer_filmstrip_tip">Astuce : vous pouvez masquer ou réactiver la bande de vignettes à tout moment dans les Paramètres</string>
+    <string name="settings_pinch_to_rotate_title">Pincer pour faire pivoter</string>
+    <string name="settings_pinch_to_rotate_desc">Faire pivoter les photos d\'un geste de rotation à deux doigts</string>
+    <string name="viewer_rotate_tip">Astuce : vous pouvez faire pivoter les photos à deux doigts. Désactivable à tout moment dans les Paramètres.</string>
+    <string name="settings_video_double_tap_zoom_title">Double-toucher pour zoomer la vidéo</string>
+    <string name="settings_video_double_tap_zoom_desc">Double-toucher au centre pour zoomer la vidéo au lieu de lire/mettre en pause</string>
+
+    <!-- Storage & Sorting -->
+    <string name="storage_internal">Stockage interne</string>
+    <string name="storage_sd_card">Carte SD</string>
+    <string name="storage_external">Stockage externe</string>
+    <string name="action_sort">Trier</string>
+    <string name="sort_date_desc">Plus récentes en premier</string>
+    <string name="sort_date_asc">Plus anciennes en premier</string>
+    <string name="sort_name_asc">Nom (A à Z)</string>
+    <string name="sort_name_desc">Nom (Z à A)</string>
+    <string name="sort_size_desc">Plus volumineux en premier</string>
+    <string name="sort_size_asc">Plus petits en premier</string>
+
+    <!-- Rename, External Video, Rescan -->
+    <string name="action_rename">Renommer</string>
+    <string name="action_repeat">Répéter</string>
+    <string name="rename_file_title">Renommer le fichier</string>
+    <string name="rename_file_hint">Nom du fichier</string>
+    <string name="toast_rename_success">Renommé en %1$s</string>
+    <string name="toast_rename_failed">Impossible de renommer le fichier</string>
+    <string name="edit_video_with_external_title">Modifier la vidéo avec…</string>
+    <string name="rescan_media_title">Réanalyser les médias</string>
+    <string name="rescan_media_subtitle">Analyser le stockage et la carte SD pour trouver les photos manquantes</string>
+    <string name="settings_rescan_media">Réanalyser la médiathèque</string>
+    <string name="settings_rescan_media_desc">Rechercher dans le stockage interne et les cartes SD pour réindexer les fichiers manquants</string>
+    <string name="toast_rescan_started">Recherche de médias sur l\'appareil…</string>
+    <string name="toast_rescan_completed">Analyse des médias terminée</string>
+
+    <!-- Phase 4 Strings -->
+    <string name="action_set_as_wallpaper">Définir comme fond d\'écran</string>
+    <string name="action_lock_album">Verrouiller l\'album</string>
+    <string name="action_exclude_folder">Exclure le dossier</string>
+    <string name="action_edit_order">Modifier l\'ordre</string>
+    <string name="action_done_editing">Terminé</string>
+    <string name="action_move_to_top">Placer en haut</string>
+    <string name="action_move_to_bottom">Placer en bas</string>
+    <string name="section_folder_view">Vue dossiers</string>
+    <string name="section_folder_view_desc">Parcourir photos et vidéos par arborescence de dossiers</string>
+    <string name="excluded_folders_title">Dossiers exclus</string>
+    <string name="excluded_folders_desc">Gérer les dossiers masqués de la galerie</string>
+    <string name="toast_folder_excluded">Dossier exclu de la galerie</string>
+    <string name="toast_folder_unexcluded">Dossier restauré dans la galerie</string>
+    <string name="no_excluded_folders">Aucun dossier exclu</string>
+    <string name="filter_all_albums">Tous</string>
+    <string name="album_options_title">Options de l\'album</string>
+    <string name="folder_up">Dossier parent</string>
+    <string name="folder_empty">Aucun média trouvé dans ce dossier</string>
+    <string name="folder_section_folders">Dossiers (%1$d)</string>
+    <string name="folder_section_media">Médias (%1$d)</string>
+    <string name="folder_items_count">%1$d éléments</string>
+    <string name="view_grid">Vue grille</string>
+    <string name="view_list">Vue liste</string>
+    <string name="vault_tab_albums">Albums</string>
+    <string name="vault_tab_all_photos">Toutes les photos</string>
 </resources>

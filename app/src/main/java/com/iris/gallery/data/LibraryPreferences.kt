@@ -15,6 +15,7 @@ data class LibraryPreferencesState(
     val albumOrder: List<Long> = emptyList(),
     val albumSort: AlbumSort = AlbumSort.NEWEST,
     val albumMediaSort: MediaSort = MediaSort.DATE_DESC,
+    val excludedFolders: Set<String> = emptySet(),
 )
 
 /** Small, synchronous preference state. Media bytes and private metadata never live here. */
@@ -43,6 +44,20 @@ class LibraryPreferences(context: Context) {
 
     fun setAlbumMediaSort(sort: MediaSort) = update { copy(albumMediaSort = sort) }
 
+    fun addExcludedFolder(folderPath: String) = update {
+        val clean = folderPath.trim().removeSuffix("/")
+        if (clean.isNotBlank()) copy(excludedFolders = excludedFolders + clean) else this
+    }
+
+    fun removeExcludedFolder(folderPath: String) = update {
+        val clean = folderPath.trim().removeSuffix("/")
+        copy(excludedFolders = excludedFolders - clean)
+    }
+
+    fun setExcludedFolders(folders: Set<String>) = update {
+        copy(excludedFolders = folders.map { it.trim().removeSuffix("/") }.filter { it.isNotBlank() }.toSet())
+    }
+
     private fun update(transform: LibraryPreferencesState.() -> LibraryPreferencesState) {
         _state.value = _state.value.transform()
         write(_state.value)
@@ -62,6 +77,7 @@ class LibraryPreferences(context: Context) {
             .getOrDefault(AlbumSort.NEWEST),
         albumMediaSort = runCatching { MediaSort.valueOf(prefs.getString("album_media_sort", null).orEmpty()) }
             .getOrDefault(MediaSort.DATE_DESC),
+        excludedFolders = prefs.getStringSet("excluded_folders", emptySet()).orEmpty(),
     )
 
     private fun write(state: LibraryPreferencesState) {
@@ -72,6 +88,7 @@ class LibraryPreferences(context: Context) {
             .putString("album_order", state.albumOrder.joinToString(","))
             .putString("album_sort", state.albumSort.name)
             .putString("album_media_sort", state.albumMediaSort.name)
+            .putStringSet("excluded_folders", state.excludedFolders)
             .apply()
     }
 }

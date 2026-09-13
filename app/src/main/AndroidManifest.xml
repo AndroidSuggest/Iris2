@@ -57,6 +57,16 @@
             <action android:name="com.android.camera.action.CROP" />
             <data android:mimeType="*/*" />
         </intent>
+        <intent>
+            <action android:name="android.intent.action.ATTACH_DATA" />
+            <data android:mimeType="image/*" />
+        </intent>
+        <intent>
+            <action android:name="android.service.wallpaper.CROP_AND_SET_WALLPAPER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SET_WALLPAPER" />
+        </intent>
     </queries>
 
     <application

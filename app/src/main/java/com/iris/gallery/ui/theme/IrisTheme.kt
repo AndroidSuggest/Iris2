@@ -42,6 +42,11 @@ private fun createDarkPalette(primary: Color, secondary: Color, tertiary: Color,
     tertiary = tertiary,
     background = if (amoled) Color.Black else Color(0xFF141218),
     surface = if (amoled) Color.Black else Color(0xFF141218),
+    surfaceContainer = if (amoled) Color.Black else Color(0xFF1E1B24),
+    surfaceContainerLow = if (amoled) Color.Black else Color(0xFF19171D),
+    surfaceContainerLowest = if (amoled) Color.Black else Color(0xFF0F0D13),
+    surfaceContainerHigh = if (amoled) Color(0xFF161618) else Color(0xFF28252E),
+    surfaceContainerHighest = if (amoled) Color(0xFF201E26) else Color(0xFF332F39),
     surfaceVariant = if (amoled) Color(0xFF161616) else Color(0xFF49454E),
     onSurface = Color(0xFFE6E1E5),
     onSurfaceVariant = Color(0xFFCAC4D0),
@@ -82,9 +87,12 @@ private fun createMonochromeDarkPalette(amoled: Boolean) = darkColorScheme(
     onTertiary = Color(0xFF09090B),
     background = if (amoled) Color.Black else Color(0xFF09090B),
     surface = if (amoled) Color.Black else Color(0xFF09090B),
-    surfaceVariant = if (amoled) Color(0xFF141414) else Color(0xFF18181B),
+    surfaceContainer = if (amoled) Color.Black else Color(0xFF121215),
+    surfaceContainerLow = if (amoled) Color.Black else Color(0xFF0D0D10),
+    surfaceContainerLowest = if (amoled) Color.Black else Color(0xFF060608),
     surfaceContainerHigh = if (amoled) Color(0xFF1C1C1F) else Color(0xFF27272A),
     surfaceContainerHighest = if (amoled) Color(0xFF242428) else Color(0xFF323238),
+    surfaceVariant = if (amoled) Color(0xFF141414) else Color(0xFF18181B),
     onSurface = Color(0xFFFAFAFA),
     onSurfaceVariant = Color(0xFFA1A1AA),
     outline = Color(0xFF3F3F46),
@@ -93,17 +101,17 @@ private fun createMonochromeDarkPalette(amoled: Boolean) = darkColorScheme(
 
 @Composable
 fun IrisTheme(
+    accentColor: AccentColor = AccentColor.IRIS,
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     amoledBlack: Boolean = false,
-    accentColor: AccentColor = AccentColor.IRIS,
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
-    val systemDark = isSystemInDarkTheme()
+    val isSystemDark = isSystemInDarkTheme()
     val isDark = when (themeMode) {
-        ThemeMode.SYSTEM -> systemDark
-        ThemeMode.DARK -> true
+        ThemeMode.SYSTEM -> isSystemDark
         ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
     }
 
     val colors = if (accentColor == AccentColor.MONOCHROME) {
@@ -114,6 +122,9 @@ fun IrisTheme(
             dynamicScheme.copy(
                 background = Color.Black,
                 surface = Color.Black,
+                surfaceContainer = Color.Black,
+                surfaceContainerLow = Color.Black,
+                surfaceContainerLowest = Color.Black,
                 surfaceVariant = Color(0xFF141414)
             )
         } else dynamicScheme

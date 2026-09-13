@@ -67,6 +67,7 @@ fun DateFormatBottomSheet(
     currentFormat: TimelineDateFormat,
     customPattern: String,
     showDayOfWeek: Boolean,
+    abbreviateDayOfWeek: Boolean = false,
     onDismiss: () -> Unit,
     onFormatSelected: (TimelineDateFormat) -> Unit,
     onCustomPatternChange: (String) -> Unit,
@@ -135,13 +136,14 @@ fun DateFormatBottomSheet(
                 items(TimelineDateFormat.entries.toTypedArray()) { format ->
                     val isSelected = format == currentFormat
                     val isCustom = format == TimelineDateFormat.CUSTOM
-                    val formatterOtherYear = remember(format, showDayOfWeek, locale, customPattern) {
+                    val formatterOtherYear = remember(format, showDayOfWeek, abbreviateDayOfWeek, locale, customPattern) {
                         getTimelineFormatter(
                             format = format,
                             isSameYear = false,
                             showDayOfWeek = showDayOfWeek,
                             locale = locale,
-                            customPattern = customPattern
+                            customPattern = customPattern,
+                            abbreviateDayOfWeek = abbreviateDayOfWeek
                         )
                     }
                     val previewStr = remember(sampleDatePast, formatterOtherYear) {

@@ -15,24 +15,41 @@ import android.view.MotionEvent
 import android.view.View
 import kotlin.math.hypot
 
-enum class EditorTool { ADJUST, CROP, TRANSFORM, RESIZE, PIXELATE, BLUR }
-enum class BrushEffect { PIXELATE, BLUR }
+enum class EditorTool { ADJUST, CROP, TRANSFORM, RESIZE, DRAW, TEXT, PIXELATE, BLUR }
+enum class BrushEffect { PIXELATE, BLUR, COLOR }
 
 data class BrushPoint(val x: Float, val y: Float)
 data class BrushStroke(val effect: BrushEffect, val radius: Float, val strength: Int,
-    val points: MutableList<BrushPoint> = mutableListOf())
+    val points: MutableList<BrushPoint> = mutableListOf(),
+    val color: Int = android.graphics.Color.RED)
+
+data class TextOverlay(
+    val id: Long = System.currentTimeMillis() + (0..10000).random(),
+    var text: String = "",
+    var x: Float = 0.5f,
+    var y: Float = 0.5f,
+    var color: Int = android.graphics.Color.WHITE,
+    var bgColor: Int = android.graphics.Color.argb(160, 0, 0, 0),
+    var textSizeRatio: Float = 0.05f
+)
 
 class EditorSession {
     val crop = RectF(0f, 0f, 1f, 1f)
     val strokes = mutableListOf<BrushStroke>()
+    val textOverlays = mutableListOf<TextOverlay>()
 }
 
 class EditorCanvasView(context: Context) : View(context) {
     val session = EditorSession()
     var tool = EditorTool.ADJUST; set(value) { field = value; invalidate() }
     var brushRadius = .06f
+    var brushColor = android.graphics.Color.RED
     var effectStrength = 18; set(value) { if (field != value) { field = value; rebuildEffects() } }
     var erasing = false
+    var selectedTextId: Long? = null; set(value) { field = value; invalidate() }
+    var onTextSelected: ((TextOverlay?) -> Unit)? = null
+    private var isDraggingText = false
+    private var draggedTextOverlay: TextOverlay? = null
     var colorFilter: android.graphics.ColorFilter? = null; set(value) { field = value; invalidate() }
     private var bitmap: Bitmap? = null
     private var composite: Bitmap? = null
@@ -111,6 +128,7 @@ class EditorCanvasView(context: Context) : View(context) {
         imagePaint.colorFilter = null
         canvas.save(); canvas.clipRect(destination)
         activeStroke?.let { drawStroke(canvas, it) }
+        drawTextOverlays(canvas)
         canvas.restore()
         if (tool == EditorTool.CROP) drawCrop(canvas)
     }
@@ -127,10 +145,92 @@ class EditorCanvasView(context: Context) : View(context) {
             strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND
             strokeWidth = stroke.radius * destination.width()
-            shader = BitmapShader(if (stroke.effect == BrushEffect.PIXELATE) pixelated ?: return else blurred ?: return,
-                Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+            if (stroke.effect == BrushEffect.COLOR) {
+                color = stroke.color
+            } else {
+                shader = BitmapShader(if (stroke.effect == BrushEffect.PIXELATE) pixelated ?: return else blurred ?: return,
+                    Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+            }
         }
         canvas.drawPath(path, strokePaint)
+    }
+
+    private fun drawTextOverlays(canvas: Canvas) {
+        if (session.textOverlays.isEmpty()) return
+        session.textOverlays.forEach { overlay ->
+            val vx = destination.left + (overlay.x - visibleLeft()) / visibleWidth() * destination.width()
+            val vy = destination.top + (overlay.y - visibleTop()) / visibleHeight() * destination.height()
+            val pxSize = (overlay.textSizeRatio / visibleWidth()) * destination.width()
+            val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = overlay.color
+                textSize = pxSize.coerceAtLeast(14f)
+                textAlign = Paint.Align.CENTER
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+            }
+            val bounds = Rect()
+            textPaint.getTextBounds(overlay.text, 0, overlay.text.length, bounds)
+            val paddingX = pxSize * 0.4f
+            val paddingY = pxSize * 0.25f
+            val bgRect = RectF(
+                vx - bounds.width() / 2f - paddingX,
+                vy - bounds.height() / 2f - paddingY,
+                vx + bounds.width() / 2f + paddingX,
+                vy + bounds.height() / 2f + paddingY
+            )
+            if (overlay.bgColor != 0) {
+                val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = overlay.bgColor
+                    style = Paint.Style.FILL
+                }
+                canvas.drawRoundRect(bgRect, pxSize * 0.25f, pxSize * 0.25f, bgPaint)
+            }
+            if (tool == EditorTool.TEXT && overlay.id == selectedTextId) {
+                val selectPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.WHITE
+                    style = Paint.Style.STROKE
+                    strokeWidth = 3f
+                }
+                canvas.drawRoundRect(bgRect, pxSize * 0.25f, pxSize * 0.25f, selectPaint)
+            }
+            val textY = vy + bounds.height() / 2f - bounds.bottom
+            canvas.drawText(overlay.text, vx, textY, textPaint)
+        }
+    }
+
+    fun addTextOverlay(text: String, color: Int, bgColor: Int, sizeRatio: Float): TextOverlay {
+        val overlay = TextOverlay(
+            text = text,
+            x = visibleLeft() + visibleWidth() / 2f,
+            y = visibleTop() + visibleHeight() / 2f,
+            color = color,
+            bgColor = bgColor,
+            textSizeRatio = sizeRatio
+        )
+        session.textOverlays.add(overlay)
+        selectedTextId = overlay.id
+        invalidate()
+        return overlay
+    }
+
+    fun updateSelectedText(text: String, color: Int, bgColor: Int, sizeRatio: Float) {
+        val overlay = session.textOverlays.find { it.id == selectedTextId } ?: return
+        overlay.text = text
+        overlay.color = color
+        overlay.bgColor = bgColor
+        overlay.textSizeRatio = sizeRatio
+        invalidate()
+    }
+
+    fun removeSelectedText() {
+        session.textOverlays.removeAll { it.id == selectedTextId }
+        selectedTextId = null
+        invalidate()
+    }
+
+    fun clearTextOverlays() {
+        session.textOverlays.clear()
+        selectedTextId = null
+        invalidate()
     }
 
     private fun drawCrop(canvas: Canvas) {
@@ -160,11 +260,15 @@ class EditorCanvasView(context: Context) : View(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (tool != EditorTool.CROP && tool != EditorTool.PIXELATE && tool != EditorTool.BLUR) return super.onTouchEvent(event)
+        if (tool != EditorTool.CROP && tool != EditorTool.PIXELATE && tool != EditorTool.BLUR && tool != EditorTool.DRAW && tool != EditorTool.TEXT) return super.onTouchEvent(event)
         if (event.action == MotionEvent.ACTION_DOWN && !destination.contains(event.x, event.y)) return true
         val point = viewToNormalized(event.x, event.y)
-        if (tool == EditorTool.CROP) handleCropTouch(event, point)
-        else if (tool == EditorTool.PIXELATE || tool == EditorTool.BLUR) handleBrushTouch(event, point)
+        when (tool) {
+            EditorTool.CROP -> handleCropTouch(event, point)
+            EditorTool.PIXELATE, EditorTool.BLUR, EditorTool.DRAW -> handleBrushTouch(event, point)
+            EditorTool.TEXT -> handleTextTouch(event, point)
+            else -> {}
+        }
         return true
     }
 
@@ -178,15 +282,61 @@ class EditorCanvasView(context: Context) : View(context) {
             return
         }
         when (event.action) {
-            MotionEvent.ACTION_DOWN -> { redoStrokes.clear(); activeStroke = BrushStroke(
-                if (tool == EditorTool.PIXELATE) BrushEffect.PIXELATE else BrushEffect.BLUR,
-                brushRadius, effectStrength, mutableListOf(point)) }
+            MotionEvent.ACTION_DOWN -> {
+                redoStrokes.clear()
+                val effect = when (tool) {
+                    EditorTool.PIXELATE -> BrushEffect.PIXELATE
+                    EditorTool.BLUR -> BrushEffect.BLUR
+                    else -> BrushEffect.COLOR
+                }
+                activeStroke = BrushStroke(
+                    effect = effect,
+                    radius = brushRadius,
+                    strength = effectStrength,
+                    points = mutableListOf(point),
+                    color = brushColor
+                )
+            }
             MotionEvent.ACTION_MOVE -> activeStroke?.points?.add(point)
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> activeStroke?.let { session.strokes.add(it) }.also {
                 activeStroke = null; rebuildComposite(); rebuildEffects()
             }
         }
         invalidate()
+    }
+
+    private fun handleTextTouch(event: MotionEvent, point: BrushPoint) {
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                val hit = session.textOverlays.findLast { overlay ->
+                    val dist = hypot(overlay.x - point.x, overlay.y - point.y)
+                    dist < (overlay.textSizeRatio * 2.5f).coerceAtLeast(0.08f)
+                }
+                if (hit != null) {
+                    selectedTextId = hit.id
+                    draggedTextOverlay = hit
+                    isDraggingText = true
+                    onTextSelected?.invoke(hit)
+                } else {
+                    selectedTextId = null
+                    draggedTextOverlay = null
+                    isDraggingText = false
+                    onTextSelected?.invoke(null)
+                }
+                invalidate()
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (isDraggingText && draggedTextOverlay != null) {
+                    draggedTextOverlay?.x = point.x.coerceIn(0.02f, 0.98f)
+                    draggedTextOverlay?.y = point.y.coerceIn(0.02f, 0.98f)
+                    invalidate()
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                isDraggingText = false
+                draggedTextOverlay = null
+            }
+        }
     }
 
     private fun handleCropTouch(event: MotionEvent, point: BrushPoint) {
@@ -331,6 +481,19 @@ class EditorCanvasView(context: Context) : View(context) {
     }
 
     private fun applyStroke(target: Bitmap, stroke: BrushStroke) {
+        if (stroke.effect == BrushEffect.COLOR) {
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+                strokeWidth = stroke.radius * target.width; color = stroke.color
+            }
+            val path = Path()
+            stroke.points.forEachIndexed { index, point ->
+                val x = point.x * target.width; val y = point.y * target.height
+                if (index == 0) { path.moveTo(x, y); path.lineTo(x + .1f, y + .1f) } else path.lineTo(x, y)
+            }
+            Canvas(target).drawPath(path, paint)
+            return
+        }
         val effect = if (stroke.effect == BrushEffect.PIXELATE) createPixelatedBitmap(target, stroke.strength)
             else createBlurredBitmap(target, stroke.strength)
         val shader = BitmapShader(effect, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)

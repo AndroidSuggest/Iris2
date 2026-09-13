@@ -146,6 +146,9 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     fun setAlbumSort(sort: AlbumSort) = libraryPreferences.setAlbumSort(sort)
     fun setAlbumOrder(order: List<Long>) = libraryPreferences.setAlbumOrder(order)
     fun setAlbumMediaSort(sort: com.iris.gallery.data.MediaSort) = libraryPreferences.setAlbumMediaSort(sort)
+    fun addExcludedFolder(path: String) = libraryPreferences.addExcludedFolder(path)
+    fun removeExcludedFolder(path: String) = libraryPreferences.removeExcludedFolder(path)
+    fun setExcludedFolders(folders: Set<String>) = libraryPreferences.setExcludedFolders(folders)
 
     fun toggleFavorite(id: Long) {
         val updated = _favorites.value.toMutableSet().apply {

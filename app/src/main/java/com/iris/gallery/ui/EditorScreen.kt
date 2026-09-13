@@ -22,6 +22,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,13 +37,17 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Redo
 import androidx.compose.material.icons.automirrored.outlined.RotateLeft
 import androidx.compose.material.icons.automirrored.outlined.RotateRight
 import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material3.Button
@@ -48,6 +55,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.ui.res.stringResource
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -99,6 +107,10 @@ fun EditorScreen(image: MediaImage, onClose: () -> Unit, onSaved: (Boolean) -> U
     var brushSize by remember { mutableFloatStateOf(.07f) }
     var strength by remember { mutableFloatStateOf(18f) }
     var erasing by remember { mutableStateOf(false) }
+    var drawColor by remember { mutableIntStateOf(android.graphics.Color.parseColor("#F44336")) }
+    var drawBrushSize by remember { mutableFloatStateOf(0.015f) }
+    var drawErasing by remember { mutableStateOf(false) }
+    var selectedOverlay by remember { mutableStateOf<TextOverlay?>(null) }
     var cropPreset by remember { mutableStateOf("Manual") }
 
     val baseWidth = if (rotation == 90 || rotation == 270) image.height else image.width
@@ -147,6 +159,7 @@ fun EditorScreen(image: MediaImage, onClose: () -> Unit, onSaved: (Boolean) -> U
                 val session = editorView?.session ?: return@Button
                 val crop = RectF(session.crop)
                 val strokes = session.strokes.map { it.copy(points = it.points.toMutableList()) }
+                val textOverlays = session.textOverlays.map { it.copy() }
                 saving = true
                 scope.launch {
                     val saved = runCatching {
@@ -155,7 +168,8 @@ fun EditorScreen(image: MediaImage, onClose: () -> Unit, onSaved: (Boolean) -> U
                             crop,
                             if (isCustomResized) resizeWidth.toIntOrNull() else null,
                             if (isCustomResized) resizeHeight.toIntOrNull() else null,
-                            strokes)
+                            strokes,
+                            textOverlays)
                     }.isSuccess
                     saving = false; onSaved(saved)
                 }
@@ -170,10 +184,22 @@ fun EditorScreen(image: MediaImage, onClose: () -> Unit, onSaved: (Boolean) -> U
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    AndroidView(factory = { EditorCanvasView(it).also { view -> editorView = view } },
+                    AndroidView(factory = {
+                        EditorCanvasView(it).also { view ->
+                            editorView = view
+                            view.onTextSelected = { overlay ->
+                                selectedOverlay = overlay
+                            }
+                        }
+                    },
                         update = { view ->
-                            view.setSource(transformedPreview); view.tool = tool; view.brushRadius = brushSize
-                            view.effectStrength = strength.toInt(); view.erasing = erasing; view.colorFilter = androidFilter
+                            view.setSource(transformedPreview)
+                            view.tool = tool
+                            view.brushRadius = if (tool == EditorTool.DRAW) drawBrushSize else brushSize
+                            view.brushColor = drawColor
+                            view.effectStrength = strength.toInt()
+                            view.erasing = if (tool == EditorTool.DRAW) drawErasing else erasing
+                            view.colorFilter = androidFilter
                         }, modifier = Modifier.fillMaxSize())
                     if (transformedPreview == null) Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_preparing), color = Color.White)
                 }
@@ -183,10 +209,22 @@ fun EditorScreen(image: MediaImage, onClose: () -> Unit, onSaved: (Boolean) -> U
                         EditorTool.CROP to com.iris.gallery.R.string.editor_tool_crop,
                         EditorTool.TRANSFORM to com.iris.gallery.R.string.editor_tool_transform,
                         EditorTool.RESIZE to com.iris.gallery.R.string.editor_tool_resize,
+                        EditorTool.DRAW to com.iris.gallery.R.string.editor_tool_draw,
+                        EditorTool.TEXT to com.iris.gallery.R.string.editor_tool_text,
                         EditorTool.PIXELATE to com.iris.gallery.R.string.editor_tool_pixelate,
                         EditorTool.BLUR to com.iris.gallery.R.string.editor_tool_blur
                     ).forEach { (value, strRes) ->
-                        FilterChip(tool == value, onClick = { tool = value }, label = { Text(androidx.compose.ui.res.stringResource(strRes)) })
+                        FilterChip(
+                            selected = tool == value,
+                            onClick = {
+                                tool = value
+                                if (value != EditorTool.TEXT) {
+                                    editorView?.selectedTextId = null
+                                    selectedOverlay = null
+                                }
+                            },
+                            label = { Text(androidx.compose.ui.res.stringResource(strRes)) }
+                        )
                     }
                 }
                 Box(
@@ -241,6 +279,41 @@ fun EditorScreen(image: MediaImage, onClose: () -> Unit, onSaved: (Boolean) -> U
                                         isCustomResized = false
                                         resizeWidth = baseWidth.toString()
                                         resizeHeight = baseHeight.toString()
+                                    }
+                                )
+                                EditorTool.DRAW -> DrawControls(
+                                    brushSize = drawBrushSize,
+                                    brushColor = drawColor,
+                                    erasing = drawErasing,
+                                    onSize = { drawBrushSize = it },
+                                    onColor = { drawColor = it },
+                                    onErase = { drawErasing = it },
+                                    onUndo = { editorView?.undoStroke() },
+                                    onRedo = { editorView?.redoStroke() },
+                                    onClear = { editorView?.clearStrokes() }
+                                )
+                                EditorTool.TEXT -> TextControls(
+                                    selectedOverlay = selectedOverlay,
+                                    onAddOrUpdateText = { text, color, bg, size ->
+                                        if (selectedOverlay != null) {
+                                            editorView?.updateSelectedText(text, color, bg, size)
+                                            selectedOverlay = editorView?.session?.textOverlays?.find { it.id == selectedOverlay?.id }
+                                        } else {
+                                            val newOverlay = editorView?.addTextOverlay(text, color, bg, size)
+                                            selectedOverlay = newOverlay
+                                        }
+                                    },
+                                    onDeleteText = {
+                                        editorView?.removeSelectedText()
+                                        selectedOverlay = null
+                                    },
+                                    onClearAllText = {
+                                        editorView?.clearTextOverlays()
+                                        selectedOverlay = null
+                                    },
+                                    onDeselect = {
+                                        editorView?.selectedTextId = null
+                                        selectedOverlay = null
                                     }
                                 )
                                 EditorTool.PIXELATE, EditorTool.BLUR -> BrushControls(currentTool, brushSize, strength, erasing,
@@ -349,6 +422,280 @@ private fun TransformControls(
     }
 }
 
+@Composable
+private fun DrawControls(
+    brushSize: Float,
+    brushColor: Int,
+    erasing: Boolean,
+    onSize: (Float) -> Unit,
+    onColor: (Int) -> Unit,
+    onErase: (Boolean) -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    onClear: () -> Unit
+) {
+    val colors = remember {
+        listOf(
+            android.graphics.Color.WHITE,
+            android.graphics.Color.BLACK,
+            android.graphics.Color.parseColor("#F44336"),
+            android.graphics.Color.parseColor("#FF9800"),
+            android.graphics.Color.parseColor("#FFEB3B"),
+            android.graphics.Color.parseColor("#4CAF50"),
+            android.graphics.Color.parseColor("#00BCD4"),
+            android.graphics.Color.parseColor("#2196F3"),
+            android.graphics.Color.parseColor("#9C27B0"),
+            android.graphics.Color.parseColor("#E91E63"),
+        )
+    }
+
+    Text(
+        stringResource(com.iris.gallery.R.string.editor_brush_size, (brushSize * 1000).toInt()),
+        style = MaterialTheme.typography.titleSmall
+    )
+    Slider(brushSize, onSize, valueRange = 0.005f..0.12f)
+
+    Text(
+        stringResource(com.iris.gallery.R.string.editor_draw_color),
+        style = MaterialTheme.typography.titleSmall
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        colors.forEach { c ->
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .background(Color(c), CircleShape)
+                    .then(
+                        if (brushColor == c && !erasing) {
+                            Modifier.border(2.5.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                        } else {
+                            Modifier.border(1.dp, Color.Gray.copy(alpha = 0.4f), CircleShape)
+                        }
+                    )
+                    .clickable {
+                        onColor(c)
+                        if (erasing) onErase(false)
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                if (brushColor == c && !erasing) {
+                    val checkColor = if (c == android.graphics.Color.WHITE || c == android.graphics.Color.parseColor("#FFEB3B")) Color.Black else Color.White
+                    Icon(
+                        Icons.Filled.Check,
+                        contentDescription = null,
+                        tint = checkColor,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.padding(top = 4.dp)
+    ) {
+        FilterChip(
+            selected = erasing,
+            onClick = { onErase(!erasing) },
+            label = {
+                Text(
+                    if (erasing) stringResource(com.iris.gallery.R.string.editor_eraser_on)
+                    else stringResource(com.iris.gallery.R.string.editor_erase)
+                )
+            }
+        )
+        IconButton(onClick = onUndo) {
+            Icon(Icons.AutoMirrored.Outlined.Undo, stringResource(com.iris.gallery.R.string.editor_undo_stroke))
+        }
+        IconButton(onClick = onRedo) {
+            Icon(Icons.AutoMirrored.Outlined.Redo, stringResource(com.iris.gallery.R.string.editor_redo_stroke))
+        }
+        IconButton(onClick = onClear) {
+            Icon(Icons.Outlined.DeleteSweep, stringResource(com.iris.gallery.R.string.editor_clear_effects))
+        }
+    }
+}
+
+@Composable
+private fun TextControls(
+    selectedOverlay: TextOverlay?,
+    onAddOrUpdateText: (String, Int, Int, Float) -> Unit,
+    onDeleteText: () -> Unit,
+    onClearAllText: () -> Unit,
+    onDeselect: () -> Unit
+) {
+    var textInput by remember(selectedOverlay?.id) { mutableStateOf(selectedOverlay?.text ?: "") }
+    var textColor by remember(selectedOverlay?.id) { mutableIntStateOf(selectedOverlay?.color ?: android.graphics.Color.WHITE) }
+    var bgStyle by remember(selectedOverlay?.id) {
+        mutableIntStateOf(
+            when (selectedOverlay?.bgColor) {
+                0 -> 0
+                android.graphics.Color.WHITE -> 1
+                else -> 2
+            }
+        )
+    }
+    var textSizeRatio by remember(selectedOverlay?.id) { mutableFloatStateOf(selectedOverlay?.textSizeRatio ?: 0.05f) }
+
+    val colors = remember {
+        listOf(
+            android.graphics.Color.WHITE,
+            android.graphics.Color.BLACK,
+            android.graphics.Color.parseColor("#F44336"),
+            android.graphics.Color.parseColor("#FF9800"),
+            android.graphics.Color.parseColor("#FFEB3B"),
+            android.graphics.Color.parseColor("#4CAF50"),
+            android.graphics.Color.parseColor("#00BCD4"),
+            android.graphics.Color.parseColor("#2196F3"),
+            android.graphics.Color.parseColor("#9C27B0"),
+            android.graphics.Color.parseColor("#E91E63"),
+        )
+    }
+
+    val computedBgColor = when (bgStyle) {
+        0 -> 0
+        1 -> android.graphics.Color.WHITE
+        else -> android.graphics.Color.argb(160, 0, 0, 0)
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        OutlinedTextField(
+            value = textInput,
+            onValueChange = {
+                textInput = it
+                if (selectedOverlay != null && it.isNotBlank()) {
+                    onAddOrUpdateText(it, textColor, computedBgColor, textSizeRatio)
+                }
+            },
+            placeholder = { Text(stringResource(com.iris.gallery.R.string.editor_text_hint)) },
+            modifier = Modifier.weight(1f),
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp)
+        )
+        Button(
+            onClick = {
+                if (textInput.isNotBlank()) {
+                    onAddOrUpdateText(textInput, textColor, computedBgColor, textSizeRatio)
+                }
+            },
+            enabled = textInput.isNotBlank()
+        ) {
+            Text(
+                if (selectedOverlay != null) stringResource(com.iris.gallery.R.string.editor_update_text)
+                else stringResource(com.iris.gallery.R.string.editor_add_text)
+            )
+        }
+    }
+
+    Text(
+        stringResource(com.iris.gallery.R.string.editor_text_size, (textSizeRatio * 1000).toInt()),
+        style = MaterialTheme.typography.titleSmall
+    )
+    Slider(
+        value = textSizeRatio,
+        onValueChange = {
+            textSizeRatio = it
+            if (selectedOverlay != null && textInput.isNotBlank()) {
+                onAddOrUpdateText(textInput, textColor, computedBgColor, it)
+            }
+        },
+        valueRange = 0.02f..0.12f
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(stringResource(com.iris.gallery.R.string.editor_draw_color) + ":", style = MaterialTheme.typography.bodySmall)
+        colors.forEach { c ->
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .background(Color(c), CircleShape)
+                    .then(
+                        if (textColor == c) {
+                            Modifier.border(2.5.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                        } else {
+                            Modifier.border(1.dp, Color.Gray.copy(alpha = 0.4f), CircleShape)
+                        }
+                    )
+                    .clickable {
+                        textColor = c
+                        if (selectedOverlay != null && textInput.isNotBlank()) {
+                            onAddOrUpdateText(textInput, c, computedBgColor, textSizeRatio)
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                if (textColor == c) {
+                    val checkColor = if (c == android.graphics.Color.WHITE || c == android.graphics.Color.parseColor("#FFEB3B")) Color.Black else Color.White
+                    Icon(Icons.Filled.Check, null, tint = checkColor, modifier = Modifier.size(14.dp))
+                }
+            }
+        }
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        FilterChip(
+            selected = bgStyle == 2,
+            onClick = {
+                bgStyle = 2
+                if (selectedOverlay != null && textInput.isNotBlank()) {
+                    onAddOrUpdateText(textInput, textColor, android.graphics.Color.argb(160, 0, 0, 0), textSizeRatio)
+                }
+            },
+            label = { Text(stringResource(com.iris.gallery.R.string.editor_text_bg_dark)) }
+        )
+        FilterChip(
+            selected = bgStyle == 1,
+            onClick = {
+                bgStyle = 1
+                if (selectedOverlay != null && textInput.isNotBlank()) {
+                    onAddOrUpdateText(textInput, textColor, android.graphics.Color.WHITE, textSizeRatio)
+                }
+            },
+            label = { Text(stringResource(com.iris.gallery.R.string.editor_text_bg_light)) }
+        )
+        FilterChip(
+            selected = bgStyle == 0,
+            onClick = {
+                bgStyle = 0
+                if (selectedOverlay != null && textInput.isNotBlank()) {
+                    onAddOrUpdateText(textInput, textColor, 0, textSizeRatio)
+                }
+            },
+            label = { Text(stringResource(com.iris.gallery.R.string.editor_text_bg_none)) }
+        )
+        if (selectedOverlay != null) {
+            IconButton(onClick = onDeleteText) {
+                Icon(Icons.Outlined.Delete, stringResource(com.iris.gallery.R.string.editor_delete_text))
+            }
+            TextButton(onClick = onDeselect) {
+                Text(stringResource(com.iris.gallery.R.string.editor_text_new))
+            }
+        }
+    }
+}
+
 @Composable private fun AdjustControls(brightness: Float, saturation: Float, contrast: Float, warmth: Float,
     onBrightness: (Float) -> Unit, onSaturation: (Float) -> Unit, onContrast: (Float) -> Unit, onWarmth: (Float) -> Unit) {
     Text(androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.editor_brightness)); Slider(brightness, onBrightness, valueRange = -.5f.. .5f)
@@ -386,7 +733,8 @@ private suspend fun saveEditedCopy(
     crop: RectF,
     requestedWidth: Int?,
     requestedHeight: Int?,
-    strokes: List<BrushStroke>
+    strokes: List<BrushStroke>,
+    textOverlays: List<TextOverlay>
 ) = withContext(Dispatchers.IO) {
     val isFile = image.uri.scheme == "file" || image.path.startsWith(context.filesDir.absolutePath)
     val rawSource = if (Build.VERSION.SDK_INT >= 28) {
@@ -426,6 +774,7 @@ private suspend fun saveEditedCopy(
     val height = requestedHeight?.coerceIn(1, 16384) ?: adjusted.height
     val resized = if (width != adjusted.width || height != adjusted.height) Bitmap.createScaledBitmap(adjusted, width, height, true) else adjusted
     renderBrushes(resized, strokes, crop)
+    renderTextOverlays(resized, textOverlays, crop)
     val nowMs = System.currentTimeMillis()
     val nowSec = nowMs / 1000L
     val values = ContentValues().apply {
@@ -458,6 +807,30 @@ private fun renderBrushes(target: Bitmap, strokes: List<BrushStroke>, crop: Rect
     if (strokes.isEmpty()) return
     val canvas = Canvas(target)
     strokes.forEach { stroke ->
+        if (stroke.effect == BrushEffect.COLOR) {
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeCap = Paint.Cap.ROUND
+                strokeJoin = Paint.Join.ROUND
+                strokeWidth = stroke.radius / crop.width() * target.width
+                color = stroke.color
+            }
+            val path = Path()
+            var visible = false
+            stroke.points.forEach { point ->
+                val x = (point.x - crop.left) / crop.width() * target.width
+                val y = (point.y - crop.top) / crop.height() * target.height
+                if (!visible) {
+                    path.moveTo(x, y)
+                    path.lineTo(x + .1f, y + .1f)
+                    visible = true
+                } else {
+                    path.lineTo(x, y)
+                }
+            }
+            canvas.drawPath(path, paint)
+            return@forEach
+        }
         val effect = if (stroke.effect == BrushEffect.PIXELATE) createPixelatedBitmap(target, stroke.strength)
             else createBlurredBitmap(target, stroke.strength)
         val shader = BitmapShader(effect, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
@@ -470,5 +843,40 @@ private fun renderBrushes(target: Bitmap, strokes: List<BrushStroke>, crop: Rect
             if (!visible) { path.moveTo(x, y); path.lineTo(x + .1f, y + .1f); visible = true } else path.lineTo(x, y)
         }
         canvas.drawPath(path, paint); effect.recycle()
+    }
+}
+
+private fun renderTextOverlays(target: Bitmap, overlays: List<TextOverlay>, crop: RectF) {
+    if (overlays.isEmpty()) return
+    val canvas = Canvas(target)
+    overlays.forEach { overlay ->
+        val x = (overlay.x - crop.left) / crop.width() * target.width
+        val y = (overlay.y - crop.top) / crop.height() * target.height
+        val pxSize = (overlay.textSizeRatio / crop.width()) * target.width
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = overlay.color
+            textSize = pxSize.coerceAtLeast(16f)
+            textAlign = Paint.Align.CENTER
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        val bounds = android.graphics.Rect()
+        textPaint.getTextBounds(overlay.text, 0, overlay.text.length, bounds)
+        val paddingX = pxSize * 0.4f
+        val paddingY = pxSize * 0.25f
+        val bgRect = RectF(
+            x - bounds.width() / 2f - paddingX,
+            y - bounds.height() / 2f - paddingY,
+            x + bounds.width() / 2f + paddingX,
+            y + bounds.height() / 2f + paddingY
+        )
+        if (overlay.bgColor != 0) {
+            val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = overlay.bgColor
+                style = Paint.Style.FILL
+            }
+            canvas.drawRoundRect(bgRect, pxSize * 0.25f, pxSize * 0.25f, bgPaint)
+        }
+        val textY = y + bounds.height() / 2f - bounds.bottom
+        canvas.drawText(overlay.text, x, textY, textPaint)
     }
 }

@@ -235,6 +235,13 @@
     <string name="details_edit_captured_hint">تاريخ الالتقاط · yyyy-MM-dd HH:mm</string>
     <string name="details_edit_orientation_hint">الاتجاه · 0، 90، 180 أو 270</string>
     <string name="details_edit_permission_note">سيطلب نظام أندرويد الإذن قبل تعديل وسائط تابعة لتطبيق آخر.</string>
+    <string name="details_image_properties">خصائص الصورة</string>
+    <string name="details_modified">تاريخ التعديل</string>
+    <string name="details_image_unique_id">المعرف الفريد للصورة</string>
+    <string name="details_exif_user_comment">تعليق EXIF للمستخدم</string>
+    <string name="details_xp_comment">تعليق XP</string>
+    <string name="details_jpeg_comment">تعليق JPEG</string>
+    <string name="details_jpeg_comment_numbered">تعليق JPEG %1$d</string>
 
     <!-- Settings Screen -->
     <string name="settings_title">الإعدادات</string>
@@ -386,6 +393,8 @@
     <string name="editor_tool_crop">قص</string>
     <string name="editor_tool_transform">تحويل</string>
     <string name="editor_tool_resize">تغيير الحجم</string>
+    <string name="editor_tool_draw">رسم</string>
+    <string name="editor_tool_text">نص</string>
     <string name="editor_tool_pixelate">تمويه نقطي (بكسلة)</string>
     <string name="editor_tool_blur">طمس (ضبابية)</string>
     <string name="editor_rotate_flip">تدوير وقلب</string>
@@ -412,6 +421,17 @@
     <string name="editor_undo_stroke">تراجع عن الضربة</string>
     <string name="editor_redo_stroke">إعادة الضربة</string>
     <string name="editor_clear_effects">مسح التأثيرات</string>
+    <string name="editor_draw_color">اللون</string>
+    <string name="editor_text_hint">اكتب النص هنا…</string>
+    <string name="editor_add_text">إضافة نص</string>
+    <string name="editor_update_text">تعديل النص</string>
+    <string name="editor_delete_text">حذف النص</string>
+    <string name="editor_text_size">حجم النص · %1$d</string>
+    <string name="editor_text_bg">الخلفية</string>
+    <string name="editor_text_bg_dark">داكنة</string>
+    <string name="editor_text_bg_light">فاتحة</string>
+    <string name="editor_text_bg_none">بدون خلفية</string>
+    <string name="editor_text_new">+ جديد</string>
     <string name="editor_brightness">السطوع</string>
     <string name="editor_saturation">التشبع</string>
     <string name="editor_contrast">التباين</string>
@@ -509,4 +529,123 @@
     <string name="toast_rescan_completed">اكتمل فحص الوسائط</string>
     <string name="settings_rescan_media">إعادة فحص مكتبة الوسائط</string>
     <string name="settings_rescan_media_desc">البحث في وحدة التخزين وبطاقة الذاكرة لإعادة فهرسة الملفات</string>
+
+    <!-- Phase 4 Strings -->
+    <string name="action_set_as_wallpaper">تعيين كخلفية</string>
+    <string name="action_lock_album">قفل الألبوم</string>
+    <string name="action_exclude_folder">استبعاد المجلد</string>
+    <string name="action_edit_order">تعديل الترتيب</string>
+    <string name="action_done_editing">تم</string>
+    <string name="action_move_to_top">نقل إلى البداية</string>
+    <string name="action_move_to_bottom">نقل إلى النهاية</string>
+    <string name="section_folder_view">تصفح المجلدات</string>
+    <string name="section_folder_view_desc">تصفح الصور ومقاطع الفيديو حسب تسلسل المجلدات</string>
+    <string name="excluded_folders_title">المجلدات المستبعدة</string>
+    <string name="excluded_folders_desc">إدارة المجلدات المخفية من المعرض</string>
+    <string name="toast_folder_excluded">تم استبعاد المجلد من المعرض</string>
+    <string name="toast_folder_unexcluded">تمت استعادة المجلد إلى المعرض</string>
+    <string name="no_excluded_folders">لا توجد مجلدات مستبعدة</string>
+    <string name="filter_all_albums">الكل</string>
+    <string name="album_options_title">خيارات الألبوم</string>
+    <string name="folder_up">للأعلى</string>
+    <string name="folder_empty">لم يتم العثور على وسائط في هذا المجلد</string>
+    <string name="folder_section_folders">المجلدات (%1$d)</string>
+    <string name="folder_section_media">الوسائط (%1$d)</string>
+    <string name="folder_items_count">%1$d عنصر</string>
+    <string name="storage_internal">وحدة التخزين الداخلية</string>
+    <string name="storage_sd_card">بطاقة الذاكرة SD</string>
+    <string name="view_grid">عرض الشبكة</string>
+    <string name="view_list">عرض القائمة</string>
+    <string name="vault_tab_albums">الألبومات</string>
+    <string name="vault_tab_all_photos">جميع الصور</string>
+
+    <!-- Details & EXIF -->
+    <string name="details_file_info">معلومات الملف</string>
+    <string name="details_camera_exif">الكاميرا وEXIF</string>
+    <string name="details_user_comment">تعليق المستخدم</string>
+    <string name="details_user_comment_hint">لم تتم إضافة تعليق</string>
+    <string name="details_lens">العدسة</string>
+    <string name="details_artist">المؤلف / الفنان</string>
+    <string name="details_copyright">حقوق النشر</string>
+    <string name="details_software">البرنامج</string>
+    <string name="details_altitude">الارتفاع</string>
+    <string name="details_white_balance">توازن اللون الأبيض</string>
+    <string name="details_white_balance_auto">تلقائي</string>
+    <string name="details_white_balance_manual">يدوي</string>
+    <string name="details_megapixels">%1$s ميغابكسل</string>
+
+    <!-- EXIF Editor -->
+    <string name="exif_editor_title">محرر EXIF والبيانات الوصفية</string>
+    <string name="exif_editor_subtitle">عرض أو تعديل أو إزالة علامات البيانات الوصفية</string>
+    <string name="exif_tab_notes">الملاحظات والمعلومات</string>
+    <string name="exif_tab_camera">الكاميرا والعدسة</string>
+    <string name="exif_tab_location">الموقع الجغرابي</string>
+    <string name="exif_tab_file">الملف والتاريخ</string>
+    <string name="exif_user_comment_label">تعليق / ملاحظة المستخدم</string>
+    <string name="exif_user_comment_hint">اكتب تعليقات شخصية أو ذكريات أو ملاحظات أرشفة…</string>
+    <string name="exif_image_desc_label">وصف الصورة</string>
+    <string name="exif_image_desc_hint">شرح أو وصف للصورة</string>
+    <string name="exif_artist_label">المؤلف / المصور</string>
+    <string name="exif_artist_hint">مثال: محمد عدي</string>
+    <string name="exif_copyright_label">إشعار حقوق النشر</string>
+    <string name="exif_copyright_hint">مثال: © 2026 Mohamad Oday</string>
+    <string name="exif_software_label">البرنامج / الأداة</string>
+    <string name="exif_camera_make_label">الشركة المصنعة للكاميرا</string>
+    <string name="exif_camera_make_hint">مثال: Sony، Canon، Google، Nikon</string>
+    <string name="exif_camera_model_label">طراز الكاميرا</string>
+    <string name="exif_camera_model_hint">مثال: Pixel 9 Pro، ILCE-7M4</string>
+    <string name="exif_lens_model_label">طراز العدسة</string>
+    <string name="exif_lens_model_hint">مثال: FE 24-70mm F2.8 GM II</string>
+    <string name="exif_iso_label">حساسية ISO</string>
+    <string name="exif_aperture_label">فتحة العدسة (رقم f)</string>
+    <string name="exif_shutter_label">سرعة الغالق (مثال: 1/250 أو 0.004)</string>
+    <string name="exif_focal_length_label">البعد البؤري (ملم)</string>
+    <string name="exif_latitude_label">خط العرض (°)</string>
+    <string name="exif_longitude_label">خط الطول (°)</string>
+    <string name="exif_altitude_label">الارتفاع (أمتار)</string>
+    <string name="exif_remove_gps">إزالة بيانات الموقع</string>
+    <string name="exif_remove_gps_desc">إزالة إحداثيات GPS من هذه الصورة لحماية الخصوصية</string>
+    <string name="exif_strip_all">مسح جميع بيانات EXIF</string>
+    <string name="exif_strip_all_desc">يمسح مواصفات الكاميرا والمؤلف والتعليقات والموقع للخصوصية</string>
+    <string name="exif_strip_all_dialog_title">مسح جميع بيانات EXIF الوصفية؟</string>
+    <string name="exif_strip_all_dialog_desc">سيؤدي هذا إلى مسح كافة إعدادات الكاميرا والتعليقات ومعلومات المؤلف وعلامات الموقع من هذه الصورة.</string>
+    <string name="exif_set_current_time">تعيين الوقت الحالي</string>
+    <string name="exif_revert_changes">استعادة</string>
+    <string name="toast_metadata_updated">تم تحديث البيانات الوصفية وعلامات EXIF</string>
+    <string name="toast_metadata_failed">تعذر تحديث البيانات الوصفية</string>
+
+    <!-- Settings Additions -->
+    <string name="settings_photos_tile_size">حجم مربعات شبكة الصور</string>
+    <string name="settings_albums_tile_size">حجم مربعات شبكة الألبومات</string>
+    <string name="settings_abbreviate_day_title">اختصار اسم اليوم</string>
+    <string name="settings_abbreviate_day_desc">استخدام أسماء أيام قصيرة (مثل ثلا بدلاً من الثلاثاء)</string>
+    <string name="settings_smart_year_title">عرض السنة الذكي</string>
+    <string name="settings_smart_year_desc">إخفاء السنة لصور العام الحالي وعرضها للسنوات السابقة</string>
+    <string name="settings_show_user_comments_title">إظهار تراكب التعليقات</string>
+    <string name="settings_show_user_comments_desc">عرض الملاحظات والتعليقات المضمنة مباشرة على الصور في العارض</string>
+    <string name="settings_show_filmstrip_title">شريط الصور المصغرة</string>
+    <string name="settings_show_filmstrip_desc">عرض شريط تمرير تفاعلي للمصغرات فوق عناصر التحكم للتنقل السريع</string>
+    <string name="viewer_filmstrip_tip">تلميح: يمكنك إخفاء أو إظهار شريط الصور المصغرة في أي وقت من الإعدادات</string>
+    <string name="settings_pinch_to_rotate_title">الضم باليد للتدوير</string>
+    <string name="settings_pinch_to_rotate_desc">تدوير الصور بإيماءة التدوير بإصبعين</string>
+    <string name="viewer_rotate_tip">تلميح: يمكنك تدوير الصور بإصبعين. يمكنك تعطيل هذا في أي وقت من الإعدادات.</string>
+
+    <!-- Storage & Sorting -->
+    <string name="storage_external">وحدة تخزين خارجية</string>
+    <string name="action_sort">ترتيب</string>
+    <string name="sort_date_desc">الأحدث أولاً</string>
+    <string name="sort_date_asc">الأقدم أولاً</string>
+    <string name="sort_name_asc">الاسم (أ إلى ي)</string>
+    <string name="sort_name_desc">الاسم (ي إلى أ)</string>
+    <string name="sort_size_desc">الأكبر حجماً أولاً</string>
+    <string name="sort_size_asc">الأصغر حجماً أولاً</string>
+
+    <!-- Rename, External Video -->
+    <string name="action_rename">إعادة التسمية</string>
+    <string name="action_repeat">تكرار</string>
+    <string name="rename_file_title">إعادة تسمية الملف</string>
+    <string name="rename_file_hint">اسم الملف</string>
+    <string name="toast_rename_success">تمت إعادة التسمية إلى %1$s</string>
+    <string name="toast_rename_failed">تعذرت إعادة تسمية الملف</string>
+    <string name="edit_video_with_external_title">تعديل الفيديو باستخدام…</string>
 </resources>

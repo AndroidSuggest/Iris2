@@ -253,6 +253,13 @@
     <string name="details_white_balance_auto">Auto</string>
     <string name="details_white_balance_manual">Manual</string>
     <string name="details_megapixels">%1$s MP</string>
+    <string name="details_image_properties">Image Properties</string>
+    <string name="details_modified">Modified</string>
+    <string name="details_image_unique_id">Image Unique ID</string>
+    <string name="details_exif_user_comment">EXIF User Comment</string>
+    <string name="details_xp_comment">XP Comment</string>
+    <string name="details_jpeg_comment">JPEG Comment</string>
+    <string name="details_jpeg_comment_numbered">JPEG Comment %1$d</string>
 
     <!-- EXIF Editor -->
     <string name="exif_editor_title">EXIF &amp; Metadata Editor</string>
@@ -470,6 +477,8 @@
     <string name="editor_tool_crop">Crop</string>
     <string name="editor_tool_transform">Transform</string>
     <string name="editor_tool_resize">Resize</string>
+    <string name="editor_tool_draw">Draw</string>
+    <string name="editor_tool_text">Text</string>
     <string name="editor_tool_pixelate">Pixelate</string>
     <string name="editor_tool_blur">Blur</string>
     <string name="editor_rotate_flip">Rotate &amp; flip</string>
@@ -496,6 +505,17 @@
     <string name="editor_undo_stroke">Undo stroke</string>
     <string name="editor_redo_stroke">Redo stroke</string>
     <string name="editor_clear_effects">Clear effects</string>
+    <string name="editor_draw_color">Color</string>
+    <string name="editor_text_hint">Type text here…</string>
+    <string name="editor_add_text">Add Text</string>
+    <string name="editor_update_text">Update Text</string>
+    <string name="editor_delete_text">Delete Text</string>
+    <string name="editor_text_size">Text size · %1$d</string>
+    <string name="editor_text_bg">Background</string>
+    <string name="editor_text_bg_dark">Dark bg</string>
+    <string name="editor_text_bg_light">Light bg</string>
+    <string name="editor_text_bg_none">No bg</string>
+    <string name="editor_text_new">+ New</string>
     <string name="editor_brightness">Brightness</string>
     <string name="editor_saturation">Saturation</string>
     <string name="editor_contrast">Contrast</string>
@@ -597,4 +617,31 @@
     <string name="toast_rescan_completed">Media scan completed</string>
     <string name="settings_rescan_media">Rescan media library</string>
     <string name="settings_rescan_media_desc">Search internal storage and SD cards to re-index missing files</string>
+
+    <!-- Phase 4 Strings -->
+    <string name="action_set_as_wallpaper">Set as wallpaper</string>
+    <string name="action_lock_album">Lock album</string>
+    <string name="action_exclude_folder">Exclude folder</string>
+    <string name="action_edit_order">Edit order</string>
+    <string name="action_done_editing">Done</string>
+    <string name="action_move_to_top">Move to top</string>
+    <string name="action_move_to_bottom">Move to bottom</string>
+    <string name="section_folder_view">Folder View</string>
+    <string name="section_folder_view_desc">Browse photos and videos by directory hierarchy</string>
+    <string name="excluded_folders_title">Excluded folders</string>
+    <string name="excluded_folders_desc">Manage folders hidden from the gallery</string>
+    <string name="toast_folder_excluded">Folder excluded from gallery</string>
+    <string name="toast_folder_unexcluded">Folder restored to gallery</string>
+    <string name="no_excluded_folders">No excluded folders</string>
+    <string name="filter_all_albums">All</string>
+    <string name="album_options_title">Album options</string>
+    <string name="folder_up">Up</string>
+    <string name="folder_empty">No media found in this folder</string>
+    <string name="folder_section_folders">Folders (%1$d)</string>
+    <string name="folder_section_media">Media (%1$d)</string>
+    <string name="folder_items_count">%1$d items</string>
+    <string name="view_grid">Grid view</string>
+    <string name="view_list">List view</string>
+    <string name="vault_tab_albums">Albums</string>
+    <string name="vault_tab_all_photos">All Photos</string>
 </resources>

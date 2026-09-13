@@ -1,6 +1,9 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.iris.gallery.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
@@ -14,8 +17,12 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -23,20 +30,30 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.Surface
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.ArrowDownward
 import androidx.compose.material.icons.outlined.ArrowUpward
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.FolderOff
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.VerticalAlignBottom
+import androidx.compose.material.icons.outlined.VerticalAlignTop
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -86,14 +103,18 @@ fun AlbumsGrid(
     covers: Map<Long, Long> = emptyMap(),
     sort: AlbumSort = AlbumSort.NEWEST,
     customOrder: List<Long> = emptyList(),
+    isEditingOrder: Boolean = false,
     onTogglePinned: (Long) -> Unit = {},
     onSortChanged: (AlbumSort) -> Unit = {},
     onOrderChanged: (List<Long>) -> Unit = {},
+    onLockAlbum: ((MediaAlbum) -> Unit)? = null,
+    onExcludeFolder: ((MediaAlbum) -> Unit)? = null,
     onOpen: (MediaAlbum) -> Unit,
 ) {
     val currentCellSize by rememberUpdatedState(cellSize)
     val currentOnCellSizeChange by rememberUpdatedState(onCellSizeChange)
     var searchQuery by remember { mutableStateOf("") }
+    var selectedAlbumForOptions by remember { mutableStateOf<MediaAlbum?>(null) }
 
     val albums = remember(images, pinned, covers, sort, customOrder) {
         val base = images.groupBy { it.bucketId }.map { (id, media) ->
@@ -191,17 +212,17 @@ fun AlbumsGrid(
                         )
                     )
 
-                    Row(
+                    LazyRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        listOf(
+                        items(listOf(
                             AlbumSort.NEWEST to com.iris.gallery.R.string.sort_recent,
                             AlbumSort.NAME to com.iris.gallery.R.string.sort_name,
                             AlbumSort.ITEM_COUNT to com.iris.gallery.R.string.sort_size,
                             AlbumSort.CUSTOM to com.iris.gallery.R.string.sort_custom
-                        ).forEach { (value, strRes) ->
+                        )) { (value, strRes) ->
                             FilterChip(
                                 selected = sort == value,
                                 onClick = {
@@ -243,7 +264,10 @@ fun AlbumsGrid(
                     Modifier
                         .fillMaxWidth()
                         .animateItem()
-                        .clickable { onOpen(album) }
+                        .combinedClickable(
+                            onClick = { onOpen(album) },
+                            onLongClick = { selectedAlbumForOptions = album }
+                        )
                 ) {
                     Box(
                         modifier = Modifier
@@ -266,8 +290,9 @@ fun AlbumsGrid(
                             Surface(
                                 shape = CircleShape,
                                 color = if (isPinned) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f)
-                                        else Color.Black.copy(alpha = 0.42f),
-                                contentColor = if (isPinned) MaterialTheme.colorScheme.onPrimaryContainer else Color.White,
+                                        else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.92f),
+                                contentColor = if (isPinned) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                shadowElevation = 2.dp,
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
                                     .padding(6.dp)
@@ -283,7 +308,7 @@ fun AlbumsGrid(
                                     )
                                 }
                             }
-                        } else {
+                        } else if (isEditingOrder) {
                             val index = effectiveOrder.indexOf(album.id)
                             Row(
                                 modifier = Modifier
@@ -291,11 +316,29 @@ fun AlbumsGrid(
                                     .padding(4.dp),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
+                                val buttonColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.92f)
+                                val buttonContentColor = MaterialTheme.colorScheme.onSurface
                                 if (index > 0) {
                                     Surface(
                                         shape = CircleShape,
-                                        color = Color.Black.copy(alpha = 0.55f),
-                                        contentColor = Color.White,
+                                        color = buttonColor,
+                                        contentColor = buttonContentColor,
+                                        shadowElevation = 2.dp,
+                                        modifier = Modifier.size(28.dp).clickable {
+                                            val next = effectiveOrder.toMutableList()
+                                            next.add(0, next.removeAt(index))
+                                            onOrderChanged(next)
+                                        }
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                            Icon(Icons.Outlined.VerticalAlignTop, contentDescription = androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.action_move_to_top), modifier = Modifier.size(15.dp))
+                                        }
+                                    }
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = buttonColor,
+                                        contentColor = buttonContentColor,
+                                        shadowElevation = 2.dp,
                                         modifier = Modifier.size(28.dp).clickable {
                                             val next = effectiveOrder.toMutableList()
                                             next.add(index - 1, next.removeAt(index))
@@ -310,8 +353,9 @@ fun AlbumsGrid(
                                 if (index in 0 until effectiveOrder.lastIndex) {
                                     Surface(
                                         shape = CircleShape,
-                                        color = Color.Black.copy(alpha = 0.55f),
-                                        contentColor = Color.White,
+                                        color = buttonColor,
+                                        contentColor = buttonContentColor,
+                                        shadowElevation = 2.dp,
                                         modifier = Modifier.size(28.dp).clickable {
                                             val next = effectiveOrder.toMutableList()
                                             next.add(index + 1, next.removeAt(index))
@@ -320,6 +364,21 @@ fun AlbumsGrid(
                                     ) {
                                         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                                             Icon(Icons.Outlined.ArrowDownward, null, modifier = Modifier.size(15.dp))
+                                        }
+                                    }
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = buttonColor,
+                                        contentColor = buttonContentColor,
+                                        shadowElevation = 2.dp,
+                                        modifier = Modifier.size(28.dp).clickable {
+                                            val next = effectiveOrder.toMutableList()
+                                            next.add(next.removeAt(index))
+                                            onOrderChanged(next)
+                                        }
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                            Icon(Icons.Outlined.VerticalAlignBottom, contentDescription = androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.action_move_to_bottom), modifier = Modifier.size(15.dp))
                                         }
                                     }
                                 }
@@ -368,6 +427,202 @@ fun AlbumsGrid(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (selectedAlbumForOptions != null) {
+            val album = selectedAlbumForOptions!!
+            val isPinned = album.id in pinned
+            ModalBottomSheet(
+                onDismissRequest = { selectedAlbumForOptions = null },
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                modifier = Modifier.navigationBarsPadding(),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 28.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Header with album thumbnail & info
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Card(
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.size(56.dp)
+                        ) {
+                            MediaThumbnail(
+                                album.cover,
+                                modifier = Modifier.fillMaxSize(),
+                                targetSizePx = 128
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = album.name,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.album_items_count, album.images.size),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    // Lock Album Option
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                selectedAlbumForOptions = null
+                                onLockAlbum?.invoke(album)
+                            },
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Lock,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.action_lock_album),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.delete_vault_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    // Exclude Folder Option
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                selectedAlbumForOptions = null
+                                onExcludeFolder?.invoke(album)
+                            },
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.errorContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Outlined.FolderOff,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.action_exclude_folder),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = androidx.compose.ui.res.stringResource(com.iris.gallery.R.string.excluded_folders_desc),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    // Pin / Unpin Album Option
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                selectedAlbumForOptions = null
+                                onTogglePinned(album.id)
+                            },
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    if (isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = androidx.compose.ui.res.stringResource(
+                                        if (isPinned) com.iris.gallery.R.string.album_unpin else com.iris.gallery.R.string.album_pin
+                                    ),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold
                                 )
                             }
                         }

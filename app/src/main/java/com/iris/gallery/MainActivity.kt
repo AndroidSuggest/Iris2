@@ -36,6 +36,7 @@ import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -99,6 +100,9 @@ import androidx.compose.material.icons.outlined.RestoreFromTrash
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material.icons.outlined.Wallpaper
+import androidx.compose.material.icons.outlined.FolderOff
+import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.filled.PushPin
 import com.iris.gallery.data.MediaSort
 import com.iris.gallery.data.NaturalOrderComparator
 import androidx.compose.material.icons.outlined.Edit
@@ -156,6 +160,8 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TooltipBox
@@ -252,9 +258,11 @@ import com.iris.gallery.ui.ThumbnailCache
 import com.iris.gallery.ui.AlbumsGrid
 import com.iris.gallery.ui.MediaAlbum
 import com.iris.gallery.ui.LibraryScreen
+import com.iris.gallery.ui.FolderBrowserScreen
 import com.iris.gallery.ui.EditorScreen
 import com.iris.gallery.ui.EditChoiceBottomSheet
 import com.iris.gallery.ui.launchExternalEditor
+import com.iris.gallery.ui.setAsWallpaper
 import com.iris.gallery.ui.AppLockScreen
 import com.iris.gallery.ui.video.VideoPage
 import com.iris.gallery.ui.video.Media3VideoEngine
@@ -270,6 +278,8 @@ import com.iris.gallery.data.AccentColor
 import com.iris.gallery.ui.SettingsScreen
 import com.iris.gallery.ui.AboutScreen
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Image
+import androidx.compose.material.icons.filled.Check
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -641,13 +651,19 @@ private fun GalleryApp(
                     }
                 )
             } else {
-                val visibleMedia = remember(state.images, requestedType, libraryState.lockedMedia) {
+                val visibleMedia = remember(state.images, requestedType, libraryState.lockedMedia, libraryState.excludedFolders) {
                     val requested = when {
                         requestedType?.startsWith("image/") == true -> state.images.filterNot { it.isVideo }
                         requestedType?.startsWith("video/") == true -> state.images.filter { it.isVideo }
                         else -> state.images
                     }
                     requested.filterNot { it.id in libraryState.lockedMedia }
+                        .filterNot { img ->
+                            libraryState.excludedFolders.any { excluded ->
+                                val clean = excluded.trimEnd('/')
+                                img.path == clean || img.path.startsWith("$clean/")
+                            }
+                        }
                 }
                 val allLockedMedia = remember(vaultMedia, state.images, libraryState.lockedMedia) {
                     val galleryLocked = state.images.filter { it.id in libraryState.lockedMedia }
@@ -804,6 +820,9 @@ private fun GalleryApp(
                         onSetAlbumSort = viewModel::setAlbumSort,
                         onSetAlbumOrder = viewModel::setAlbumOrder,
                         onSetAlbumMediaSort = viewModel::setAlbumMediaSort,
+                        excludedFolders = libraryState.excludedFolders,
+                        onAddExcludedFolder = viewModel::addExcludedFolder,
+                        onRemoveExcludedFolder = viewModel::removeExcludedFolder,
                         onRequestUnlock = {
                             if (!settings.biometricLockEnabled) {
                                 lockedAuthorized = true
@@ -1133,6 +1152,9 @@ private fun GalleryScaffold(
     onRefresh: () -> Unit = {},
     onRescanMedia: () -> Unit = {},
     onRenameMedia: (MediaImage, String, (MediaImage?) -> Unit) -> Unit = { _, _, _ -> },
+    excludedFolders: Set<String> = emptySet(),
+    onAddExcludedFolder: (String) -> Unit = {},
+    onRemoveExcludedFolder: (String) -> Unit = {},
     initialMemories: Boolean,
     initialViewUri: Uri? = null,
     initialEditMode: Boolean = false,
@@ -1148,8 +1170,10 @@ private fun GalleryScaffold(
     var externalMedia by remember { mutableStateOf<MediaImage?>(null) }
     var viewerImages by remember { mutableStateOf<List<MediaImage>?>(null) }
     var selectedAlbumId by remember { mutableStateOf<Long?>(null) }
+    var selectedLockedAlbum by remember { mutableStateOf<String?>(null) }
     var librarySection by remember { mutableStateOf<String?>(if (initialMemories) "memories" else null) }
     var editorImage by remember { mutableStateOf<MediaImage?>(null) }
+    var isEditingAlbumOrder by remember { mutableStateOf(false) }
 
     var initialUriHandled by remember { mutableStateOf(false) }
     LaunchedEffect(initialViewUri, initialEditMode) {
@@ -1352,6 +1376,7 @@ private fun GalleryScaffold(
     Box(Modifier.fillMaxSize()) {
         Scaffold(
         topBar = {
+          if (!(destination == 3 && librarySection == "folder_view")) {
             TopAppBar(
                 title = {
                     if (isFileSearching) {
@@ -1382,11 +1407,12 @@ private fun GalleryScaffold(
                             else when {
                                 destination == 1 && selectedAlbum != null -> selectedAlbum!!.name
                                 destination == 3 && librarySection == "trash" -> stringResource(R.string.section_trash)
-                                destination == 3 && librarySection == "locked" -> stringResource(R.string.section_locked)
+                                destination == 3 && librarySection == "locked" -> if (selectedLockedAlbum != null) selectedLockedAlbum!! else stringResource(R.string.section_locked)
                                 destination == 3 && librarySection == "duplicates" -> stringResource(R.string.section_duplicates)
                                 destination == 3 && librarySection == "memories" -> stringResource(R.string.section_memories)
                                 destination == 3 && librarySection == "formats" -> stringResource(R.string.library_formats_title)
                                 destination == 3 && librarySection == "editor" -> stringResource(R.string.library_editor_title)
+                                destination == 3 && librarySection == "folder_view" -> stringResource(R.string.section_folder_view)
                                 destination == 3 && librarySection != null -> librarySection!!.replaceFirstChar { it.uppercase() }
                                 destination == 2 -> favoritesTabLabel
                                 destination == 1 -> albumsTabLabel
@@ -1411,8 +1437,10 @@ private fun GalleryScaffold(
                         IconButton(onClick = ::clearSelection) { Icon(Icons.Outlined.Close, stringResource(R.string.action_clear_selection)) }
                     } else if (destination == 1 && selectedAlbum != null) {
                         IconButton(onClick = { selectedAlbumId = null }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, albumsTabLabel) }
+                    } else if (destination == 3 && librarySection == "locked" && selectedLockedAlbum != null) {
+                        IconButton(onClick = { selectedLockedAlbum = null }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.section_locked)) }
                     } else if (destination == 3 && librarySection != null) {
-                        IconButton(onClick = { librarySection = null }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, libraryTabLabel) }
+                        IconButton(onClick = { librarySection = null; selectedLockedAlbum = null }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, libraryTabLabel) }
                     }
                 },
                 actions = {
@@ -1533,6 +1561,53 @@ private fun GalleryScaffold(
                                     }
                                 }
                             }
+                            var albumOptionsMenuExpanded by remember { mutableStateOf(false) }
+                            Box {
+                                IconButton(onClick = { albumOptionsMenuExpanded = true }) {
+                                    Icon(Icons.Outlined.MoreVert, stringResource(R.string.action_more_options))
+                                }
+                                DropdownMenu(
+                                    expanded = albumOptionsMenuExpanded,
+                                    onDismissRequest = { albumOptionsMenuExpanded = false }
+                                ) {
+                                    val isPinned = selectedAlbum!!.id in pinnedAlbums
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.action_lock_album)) },
+                                        leadingIcon = { Icon(Icons.Outlined.Lock, null) },
+                                        onClick = {
+                                            albumOptionsMenuExpanded = false
+                                            onLockMedia(selectedAlbum!!.images)
+                                            selectedAlbumId = null
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.action_exclude_folder)) },
+                                        leadingIcon = { Icon(Icons.Outlined.FolderOff, null) },
+                                        onClick = {
+                                            albumOptionsMenuExpanded = false
+                                            val samplePath = selectedAlbum!!.images.firstOrNull { it.path.isNotBlank() }?.path.orEmpty()
+                                            val folderPath = if (samplePath.contains('/')) samplePath.substringBeforeLast('/') else ""
+                                            if (folderPath.isNotBlank()) {
+                                                onAddExcludedFolder(folderPath)
+                                                Toast.makeText(context, R.string.toast_folder_excluded, Toast.LENGTH_SHORT).show()
+                                                selectedAlbumId = null
+                                            }
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(stringResource(if (isPinned) R.string.album_unpin else R.string.album_pin))
+                                        },
+                                        leadingIcon = {
+                                            Icon(if (isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin, null)
+                                        },
+                                        onClick = {
+                                            albumOptionsMenuExpanded = false
+                                            onTogglePinnedAlbum(selectedAlbum!!.id)
+                                        }
+                                    )
+                                }
+                            }
                         }
                         if (destination == 3 && librarySection == "trash" && trashed.isNotEmpty()) {
                             TextButton(onClick = { confirmEmptyTrash = true }) {
@@ -1555,6 +1630,17 @@ private fun GalleryScaffold(
                             }
                         }
                         val inSubpage = (destination == 1 && selectedAlbum != null) || (destination == 3 && librarySection != null)
+                        if (destination == 1 && selectedAlbum == null && albumSort == com.iris.gallery.data.AlbumSort.CUSTOM) {
+                            IconButton(onClick = { isEditingAlbumOrder = !isEditingAlbumOrder }) {
+                                Icon(
+                                    if (isEditingAlbumOrder) Icons.Filled.Check else Icons.Outlined.Edit,
+                                    contentDescription = stringResource(
+                                        if (isEditingAlbumOrder) R.string.action_done_editing else R.string.action_edit_order
+                                    ),
+                                    tint = if (isEditingAlbumOrder) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
                         if (!inSubpage) {
                             IconButton(onClick = {
                                 activeOverlayScreen = "settings"
@@ -1566,27 +1652,65 @@ private fun GalleryScaffold(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
             )
+          }
         },
         bottomBar = {
           if (selectedIds.isEmpty()) {
-            NavigationBar {
-                labels.forEachIndexed { index, label ->
-                    NavigationBarItem(
-                        selected = destination == index,
-                        onClick = { tabScope.launch {
-                            val current = tabPagerState.currentPage
-                            if (current == index) {
-                                if (index == 1) selectedAlbumId = null
-                                if (index == 3) librarySection = null
-                            } else if (kotlin.math.abs(current - index) > 1) {
-                                tabPagerState.scrollToPage(index)
-                            } else {
-                                tabPagerState.animateScrollToPage(index, animationSpec = tween(220, easing = FastOutSlowInEasing))
-                            }
-                        } },
-                        icon = { AnimatedNavigationIcon(icons[index], destination == index, label) },
-                        label = { Text(label) },
-                    )
+            val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+            val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            val isWideScreen = configuration.screenWidthDp >= 600
+            val isDarkTheme = when (settings.themeMode) {
+                com.iris.gallery.data.ThemeMode.LIGHT -> false
+                com.iris.gallery.data.ThemeMode.DARK -> true
+                com.iris.gallery.data.ThemeMode.SYSTEM -> isSystemInDarkTheme()
+            }
+            val isAmoled = isDarkTheme && settings.amoledBlack
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding(),
+                contentAlignment = Alignment.Center
+            ) {
+                Surface(
+                    color = if (isAmoled) Color.Black else MaterialTheme.colorScheme.surfaceContainer,
+                    shape = if (isLandscape) RoundedCornerShape(28.dp) else RoundedCornerShape(0.dp),
+                    border = if (isLandscape) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)) else null,
+                    modifier = if (isLandscape) {
+                        Modifier
+                            .padding(bottom = 8.dp)
+                            .widthIn(max = 500.dp)
+                    } else if (isWideScreen) {
+                        Modifier.widthIn(max = 560.dp)
+                    } else {
+                        Modifier.fillMaxWidth()
+                    }
+                ) {
+                    NavigationBar(
+                        containerColor = Color.Transparent,
+                        windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
+                        modifier = if (isLandscape) Modifier.height(60.dp) else Modifier
+                    ) {
+                        labels.forEachIndexed { index, label ->
+                            NavigationBarItem(
+                                selected = destination == index,
+                                onClick = { tabScope.launch {
+                                    val current = tabPagerState.currentPage
+                                    if (current == index) {
+                                        if (index == 1) selectedAlbumId = null
+                                        if (index == 3) librarySection = null
+                                    } else if (kotlin.math.abs(current - index) > 1) {
+                                        tabPagerState.scrollToPage(index)
+                                    } else {
+                                        tabPagerState.animateScrollToPage(index, animationSpec = tween(220, easing = FastOutSlowInEasing))
+                                    }
+                                } },
+                                icon = { AnimatedNavigationIcon(icons[index], destination == index, label) },
+                                label = if (isLandscape) null else { { Text(label) } },
+                                alwaysShowLabel = !isLandscape,
+                            )
+                        }
+                    }
                 }
             }
           }
@@ -1685,9 +1809,19 @@ private fun GalleryScaffold(
                 covers = albumCovers,
                 sort = albumSort,
                 customOrder = albumOrder,
+                isEditingOrder = isEditingAlbumOrder && destination == 1 && selectedAlbumId == null && albumSort == com.iris.gallery.data.AlbumSort.CUSTOM,
                 onTogglePinned = onTogglePinnedAlbum,
                 onSortChanged = onSetAlbumSort,
-                onOrderChanged = onSetAlbumOrder
+                onOrderChanged = onSetAlbumOrder,
+                onLockAlbum = { album -> onLockMedia(album.images) },
+                onExcludeFolder = { album ->
+                    val samplePath = album.images.firstOrNull { it.path.isNotBlank() }?.path.orEmpty()
+                    val folderPath = if (samplePath.contains('/')) samplePath.substringBeforeLast('/') else ""
+                    if (folderPath.isNotBlank()) {
+                        onAddExcludedFolder(folderPath)
+                        Toast.makeText(context, R.string.toast_folder_excluded, Toast.LENGTH_SHORT).show()
+                    }
+                },
               ) { selectedAlbumId = it.id }
             }
           }
@@ -1719,24 +1853,161 @@ private fun GalleryScaffold(
                             EmptyState(stringResource(R.string.empty_locked_locked_state), padding)
                         } else {
                             val locked = lockedMedia
-                            if (locked.isEmpty()) EmptyState(stringResource(R.string.empty_locked), padding) else PhotoGrid(
-                                images = locked,
-                                padding = padding,
-                                gridState = libraryGridState,
-                                cellSize = photoCellSize,
-                                onCellSizeChange = onCellSizeChange,
-                                cornerStyle = settings.cornerStyle,
-                                gridSpacing = settings.gridSpacing,
-                                showVideoDuration = settings.showVideoDurationBadge,
-                                showFormatBadge = settings.showMediaFormatBadge,
-                                selectedIds = selectedIds,
-                                onToggleSelection = ::toggleSelection,
-                                onSetSelection = ::setSelection,
-                            ) {
-                                if (selectedIds.isNotEmpty()) toggleSelection(it.id)
-                                else {
-                                    viewerImages = locked
-                                    selectedId = it.id
+                            val lockedAlbumList = remember(locked) {
+                                locked.groupBy { it.bucketName.ifBlank { "Locked" } }
+                                    .map { (name, items) ->
+                                        MediaAlbum(
+                                            id = items.firstOrNull()?.bucketId ?: name.hashCode().toLong(),
+                                            name = name,
+                                            images = items,
+                                            cover = items.first(),
+                                            isSdCard = false
+                                        )
+                                    }.sortedWith(compareByDescending<MediaAlbum> { it.images.size }.thenBy { it.name.lowercase() })
+                            }
+                            if (locked.isEmpty()) {
+                                EmptyState(stringResource(R.string.empty_locked), padding)
+                            } else if (selectedLockedAlbum != null) {
+                                val albumImages = remember(locked, selectedLockedAlbum) {
+                                    locked.filter { it.bucketName.ifBlank { "Locked" } == selectedLockedAlbum }
+                                }
+                                PhotoGrid(
+                                    images = albumImages,
+                                    padding = padding,
+                                    gridState = libraryGridState,
+                                    cellSize = photoCellSize,
+                                    onCellSizeChange = onCellSizeChange,
+                                    cornerStyle = settings.cornerStyle,
+                                    gridSpacing = settings.gridSpacing,
+                                    showVideoDuration = settings.showVideoDurationBadge,
+                                    showFormatBadge = settings.showMediaFormatBadge,
+                                    selectedIds = selectedIds,
+                                    onToggleSelection = ::toggleSelection,
+                                    onSetSelection = ::setSelection,
+                                ) {
+                                    if (selectedIds.isNotEmpty()) toggleSelection(it.id)
+                                    else {
+                                        viewerImages = albumImages
+                                        selectedId = it.id
+                                    }
+                                }
+                            } else if (lockedAlbumList.size > 1) {
+                                var vaultTab by remember { mutableIntStateOf(0) }
+                                Column(Modifier.fillMaxSize().padding(padding)) {
+                                    TabRow(
+                                        selectedTabIndex = vaultTab,
+                                        containerColor = Color.Transparent,
+                                        contentColor = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                                    ) {
+                                        Tab(
+                                            selected = vaultTab == 0,
+                                            onClick = { vaultTab = 0 },
+                                            text = { Text(stringResource(R.string.vault_tab_albums) + " (${lockedAlbumList.size})") }
+                                        )
+                                        Tab(
+                                            selected = vaultTab == 1,
+                                            onClick = { vaultTab = 1 },
+                                            text = { Text(stringResource(R.string.vault_tab_all_photos) + " (${locked.size})") }
+                                        )
+                                    }
+                                    if (vaultTab == 0) {
+                                        LazyVerticalGrid(
+                                            columns = GridCells.Adaptive(140.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(settings.gridSpacing.dp.dp),
+                                            verticalArrangement = Arrangement.spacedBy(settings.gridSpacing.dp.dp),
+                                            modifier = Modifier.fillMaxSize()
+                                        ) {
+                                            items(lockedAlbumList, key = { it.name }) { album ->
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clickable { selectedLockedAlbum = album.name }
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .aspectRatio(1f)
+                                                    ) {
+                                                        Card(
+                                                            shape = RoundedCornerShape(settings.cornerStyle.dp.dp),
+                                                            modifier = Modifier.fillMaxSize()
+                                                        ) {
+                                                            MediaThumbnail(
+                                                                album.cover,
+                                                                modifier = Modifier.fillMaxSize(),
+                                                                targetSizePx = 256
+                                                            )
+                                                        }
+                                                    }
+                                                    Column(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(top = 6.dp, start = 2.dp, end = 2.dp),
+                                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = album.name,
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                        Text(
+                                                            text = stringResource(R.string.album_items_count, album.images.size),
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        PhotoGrid(
+                                            images = locked,
+                                            padding = PaddingValues(0.dp),
+                                            gridState = libraryGridState,
+                                            cellSize = photoCellSize,
+                                            onCellSizeChange = onCellSizeChange,
+                                            cornerStyle = settings.cornerStyle,
+                                            gridSpacing = settings.gridSpacing,
+                                            showVideoDuration = settings.showVideoDurationBadge,
+                                            showFormatBadge = settings.showMediaFormatBadge,
+                                            selectedIds = selectedIds,
+                                            onToggleSelection = ::toggleSelection,
+                                            onSetSelection = ::setSelection,
+                                        ) {
+                                            if (selectedIds.isNotEmpty()) toggleSelection(it.id)
+                                            else {
+                                                viewerImages = locked
+                                                selectedId = it.id
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                PhotoGrid(
+                                    images = locked,
+                                    padding = padding,
+                                    gridState = libraryGridState,
+                                    cellSize = photoCellSize,
+                                    onCellSizeChange = onCellSizeChange,
+                                    cornerStyle = settings.cornerStyle,
+                                    gridSpacing = settings.gridSpacing,
+                                    showVideoDuration = settings.showVideoDurationBadge,
+                                    showFormatBadge = settings.showMediaFormatBadge,
+                                    selectedIds = selectedIds,
+                                    onToggleSelection = ::toggleSelection,
+                                    onSetSelection = ::setSelection,
+                                ) {
+                                    if (selectedIds.isNotEmpty()) toggleSelection(it.id)
+                                    else {
+                                        viewerImages = locked
+                                        selectedId = it.id
+                                    }
                                 }
                             }
                         }
@@ -1919,6 +2190,16 @@ private fun GalleryScaffold(
                             onCancel = onCancelDuplicateScan,
                             onOpen = { group, media -> viewerImages = group.items; selectedId = media.id },
                             onTrash = handleTrash,
+                        )
+                        "folder_view" -> FolderBrowserScreen(
+                            padding = padding,
+                            cornerStyle = settings.cornerStyle,
+                            gridSpacing = settings.gridSpacing,
+                            onOpenMedia = { media, folderMediaList ->
+                                viewerImages = folderMediaList
+                                selectedId = media.id
+                            },
+                            onBack = { librarySection = null }
                         )
                         else -> LibraryScreen(padding, trashed.size, lockedMedia.size) {
                             if (it == "rescan") {
@@ -2104,7 +2385,8 @@ private fun GalleryScaffold(
     BackHandler(enabled = isFileSearching) { isFileSearching = false; fileSearchQuery = "" }
     BackHandler(enabled = !isFileSearching && selectedIds.isNotEmpty()) { clearSelection() }
     BackHandler(enabled = selectedIds.isEmpty() && destination == 1 && selectedAlbum != null) { selectedAlbumId = null }
-    BackHandler(enabled = selectedIds.isEmpty() && destination == 3 && librarySection != null) { librarySection = null }
+    BackHandler(enabled = selectedIds.isEmpty() && destination == 3 && librarySection == "locked" && selectedLockedAlbum != null) { selectedLockedAlbum = null }
+    BackHandler(enabled = selectedIds.isEmpty() && destination == 3 && librarySection != null && (librarySection != "locked" || selectedLockedAlbum == null)) { librarySection = null; selectedLockedAlbum = null }
     BackHandler(enabled = editorImage != null) { editorImage = null }
     BackHandler(enabled = externalMedia != null) { externalMedia = null }
 
@@ -2373,6 +2655,8 @@ private fun GalleryScaffold(
             SettingsScreen(
                 settings = settings,
                 preferences = settingsPreferences,
+                excludedFolders = excludedFolders,
+                onRemoveExcludedFolder = onRemoveExcludedFolder,
                 onOpenAbout = { activeOverlayScreen = "about" },
                 onRescanMedia = onRescanMedia,
                 onBack = { activeOverlayScreen = null }
@@ -3315,6 +3599,14 @@ private fun PhotoViewer(
                             }
                         )
                         if (!current.isVideo) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.action_set_as_wallpaper)) },
+                                leadingIcon = { Icon(Icons.Outlined.Wallpaper, null) },
+                                onClick = {
+                                    viewerMenuExpanded = false
+                                    setAsWallpaper(context, current)
+                                }
+                            )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.action_edit_builtin)) },
                                 leadingIcon = { Icon(Icons.Outlined.AutoFixHigh, null) },
@@ -4267,6 +4559,7 @@ private fun PhotoDetailsSheet(
             loadExifMetadata(context, image.uri)
         }
     }
+    val currentExif = exif
     var editing by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     ModalBottomSheet(
@@ -4291,16 +4584,17 @@ private fun PhotoDetailsSheet(
             )
 
             val currentLocale = rememberAppLocale()
-            val resolvedTitle = (exif?.title?.takeIf { it.isNotBlank() } ?: image.title).takeIf {
+            val resolvedTitle = (currentExif?.title?.takeIf { it.isNotBlank() } ?: image.title).takeIf {
                 it.isNotBlank() && it != image.name && it != image.name.substringBeforeLast('.')
             }
-            val resolvedDesc = (exif?.imageDescription?.takeIf { it.isNotBlank() } ?: image.description.takeIf { it.isNotBlank() })?.takeIf {
+            val resolvedDesc = (currentExif?.imageDescription?.takeIf { it.isNotBlank() } ?: image.description.takeIf { it.isNotBlank() })?.takeIf {
                 it != resolvedTitle && it != image.name && it != image.name.substringBeforeLast('.')
             }
-            val commentText = exif?.userComment?.ifBlank { null }
+            val commentText = currentExif?.userComment?.ifBlank { null }
+            val hasNotes = commentText != null || resolvedDesc != null || !currentExif?.xpComment.isNullOrBlank() || !currentExif?.jpegComments.isNullOrEmpty()
 
             // 1. User Notes / Comments Card
-            if (commentText != null || resolvedDesc != null) {
+            if (hasNotes) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)),
@@ -4312,21 +4606,30 @@ private fun PhotoDetailsSheet(
                             Text(stringResource(R.string.details_user_comment), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         }
                         if (commentText != null) {
-                            SelectionContainer {
-                                Text(commentText, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                            DetailBlock(stringResource(R.string.details_exif_user_comment), commentText)
+                        }
+                        if (!currentExif?.xpComment.isNullOrBlank()) {
+                            DetailBlock(stringResource(R.string.details_xp_comment), currentExif!!.xpComment!!)
+                        }
+                        currentExif?.jpegComments?.let { comments ->
+                            comments.forEachIndexed { idx, jc ->
+                                val label = if (comments.size > 1) {
+                                    stringResource(R.string.details_jpeg_comment_numbered, idx + 1)
+                                } else {
+                                    stringResource(R.string.details_jpeg_comment)
+                                }
+                                DetailBlock(label, jc)
                             }
                         }
                         if (resolvedDesc != null) {
-                            SelectionContainer {
-                                Text(resolvedDesc, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                            DetailBlock(stringResource(R.string.details_desc_field), resolvedDesc)
                         }
                     }
                 }
             }
 
             // 2. Camera & EXIF Metadata Card
-            exif?.let { data ->
+            currentExif?.let { data ->
                 val hasCamera = data.cameraDisplayName != null || data.aperture != null || data.shutterSpeed != null || data.iso != null || data.focalLength != null
                 if (hasCamera) {
                     Card(
@@ -4336,28 +4639,31 @@ private fun PhotoDetailsSheet(
                     ) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Icon(Icons.Outlined.CameraAlt, stringResource(R.string.details_camera_exif), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                                Text(data.cameraDisplayName ?: stringResource(R.string.details_camera_exif), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                Icon(Icons.Outlined.CameraAlt, stringResource(R.string.details_camera), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                Text(stringResource(R.string.details_camera), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            }
+                            if (data.cameraDisplayName != null) {
+                                DetailItem(stringResource(R.string.details_camera), data.cameraDisplayName!!)
                             }
                             if (!data.lensModel.isNullOrBlank()) {
-                                Text(data.lensModel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                                DetailItem(stringResource(R.string.details_lens), data.lensModel)
                             }
                             val specs = listOfNotNull(data.aperture, data.shutterSpeed, data.focalLength, data.iso).joinToString(" · ")
                             if (specs.isNotBlank()) {
-                                Text(specs, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                DetailItem(stringResource(R.string.details_camera_capture), specs)
                             }
                             val extraSpecs = listOfNotNull(data.flash, data.whiteBalance?.let { "${stringResource(R.string.details_white_balance)}: $it" }).joinToString(" · ")
                             if (extraSpecs.isNotBlank()) {
                                 Text(extraSpecs, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             if (!data.software.isNullOrBlank()) {
-                                Text("${stringResource(R.string.details_software)}: ${data.software}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                DetailItem(stringResource(R.string.details_software), data.software)
                             }
                             if (!data.artist.isNullOrBlank()) {
-                                Text("${stringResource(R.string.details_artist)}: ${data.artist}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                DetailItem(stringResource(R.string.details_artist), data.artist)
                             }
                             if (!data.copyright.isNullOrBlank()) {
-                                Text("${stringResource(R.string.details_copyright)}: ${data.copyright}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                DetailItem(stringResource(R.string.details_copyright), data.copyright)
                             }
                         }
                     }
@@ -4398,7 +4704,33 @@ private fun PhotoDetailsSheet(
                 }
             }
 
-            // 4. File Information Card
+            // 4. Image Properties Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(16.dp),
+            ) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Outlined.Image, stringResource(R.string.details_image_properties), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        Text(stringResource(R.string.details_image_properties), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    }
+                    val mp = if (image.width > 0 && image.height > 0) (image.width * image.height) / 1_000_000.0 else 0.0
+                    val resText = if (mp > 0) "${image.width} × ${image.height} (%.1f MP)".format(Locale.US, mp) else "${image.width} × ${image.height}"
+                    DetailItem(stringResource(R.string.details_resolution), resText)
+                    if (!currentExif?.dateTimeOriginal.isNullOrBlank()) {
+                        val capStr = currentExif.dateTimeOriginal + (currentExif.offsetTimeOriginal?.let { " ($it)" } ?: "")
+                        DetailItem(stringResource(R.string.details_captured), capStr)
+                    }
+                    if (!currentExif?.imageUniqueId.isNullOrBlank()) {
+                        DetailBlock(stringResource(R.string.details_image_unique_id), currentExif.imageUniqueId!!)
+                    }
+                    if (image.orientation != 0) DetailItem(stringResource(R.string.details_orientation), "${image.orientation}°")
+                    if (image.isVideo && image.durationMs > 0) DetailItem(stringResource(R.string.details_duration), formatMediaDuration(image.durationMs))
+                }
+            }
+
+            // 5. File Information Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f)),
@@ -4446,14 +4778,9 @@ private fun PhotoDetailsSheet(
                         val dateStr = localDate.format(formatter)
                         "$dateStr · $timeStr"
                     }
-                    DetailItem(stringResource(R.string.details_captured), formattedDate)
-                    val mp = if (image.width > 0 && image.height > 0) (image.width * image.height) / 1_000_000.0 else 0.0
-                    val resText = if (mp > 0) "${image.width} × ${image.height} (%.1f MP)".format(Locale.US, mp) else "${image.width} × ${image.height}"
-                    DetailItem(stringResource(R.string.details_resolution), resText)
+                    DetailItem(stringResource(R.string.details_modified), formattedDate)
                     DetailItem(stringResource(R.string.details_type), image.mimeType.ifBlank { if (image.isVideo) stringResource(R.string.format_video) else stringResource(R.string.format_image) })
                     DetailItem(stringResource(R.string.details_size), formatFileSize(image.sizeBytes))
-                    if (image.orientation != 0) DetailItem(stringResource(R.string.details_orientation), "${image.orientation}°")
-                    if (image.isVideo) DetailItem(stringResource(R.string.details_duration), formatMediaDuration(image.durationMs))
                     DetailBlock(stringResource(R.string.details_path), image.path)
                 }
             }
@@ -4475,7 +4802,7 @@ private fun PhotoDetailsSheet(
     if (editing) {
         ExifEditorSheet(
             image = image,
-            exif = exif,
+            exif = currentExif,
             onDismiss = { editing = false },
             onSave = { request ->
                 editing = false

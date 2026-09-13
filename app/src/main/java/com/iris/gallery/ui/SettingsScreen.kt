@@ -22,7 +22,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -37,6 +39,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CleaningServices
 import androidx.compose.material.icons.outlined.Dashboard
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.FolderOff
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Language
@@ -119,6 +123,8 @@ fun SettingsScreen(
     padding: PaddingValues = PaddingValues(0.dp),
     settings: SettingsState,
     preferences: SettingsPreferences,
+    excludedFolders: Set<String> = emptySet(),
+    onRemoveExcludedFolder: (String) -> Unit = {},
     onOpenAbout: () -> Unit = {},
     onRescanMedia: () -> Unit = {},
     onBack: () -> Unit
@@ -131,6 +137,7 @@ fun SettingsScreen(
     var showLanguageDialog by remember { mutableStateOf(false) }
     var showDateFormatDialog by remember { mutableStateOf(false) }
     var showTimePickerDialog by remember { mutableStateOf(false) }
+    var showExcludedFoldersDialog by remember { mutableStateOf(false) }
 
     fun clearCache() {
         runCatching {
@@ -464,11 +471,11 @@ fun SettingsScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(stringResource(R.string.settings_photos_tile_size), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
 
-                        // Scaled Live Photos Grid Mockup (Dynamic Height, Capped Max Height, Full Width Fill)
+                        // Scaled Live Photos Grid Mockup (Dynamic Height, Full Width Fill)
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 160.dp)
+                                .wrapContentHeight()
                                 .animateContentSize(),
                             color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.45f),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
@@ -756,82 +763,94 @@ fun SettingsScreen(
                         onCheckedChange = { preferences.setShowTimelineHeaders(it) }
                     )
 
-                    if (settings.showTimelineHeaders) {
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    AnimatedVisibility(
+                        visible = settings.showTimelineHeaders,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { showDateFormatDialog = true }
-                                .padding(vertical = 4.dp, horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { showDateFormatDialog = true }
+                                    .padding(vertical = 4.dp, horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text(
-                                    stringResource(R.string.settings_date_format_title),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    if (settings.timelineDateFormat == TimelineDateFormat.CUSTOM) {
-                                        "${stringResource(R.string.settings_date_format_custom)} (${settings.customTimelineDateFormat})"
-                                    } else {
-                                        stringResource(settings.timelineDateFormat.getDisplayNameRes())
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        stringResource(R.string.settings_date_format_title),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        if (settings.timelineDateFormat == TimelineDateFormat.CUSTOM) {
+                                            "${stringResource(R.string.settings_date_format_custom)} (${settings.customTimelineDateFormat})"
+                                        } else {
+                                            stringResource(settings.timelineDateFormat.getDisplayNameRes())
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                Icon(
+                                    Icons.AutoMirrored.Outlined.ArrowForwardIos,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
-                            Icon(
-                                Icons.AutoMirrored.Outlined.ArrowForwardIos,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
 
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.settings_relative_dates_title),
-                            subtitle = stringResource(R.string.settings_relative_dates_desc),
-                            checked = settings.useRelativeDates,
-                            onCheckedChange = { preferences.setUseRelativeDates(it) }
-                        )
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.settings_show_day_of_week_title),
-                            subtitle = stringResource(R.string.settings_show_day_of_week_desc),
-                            checked = settings.showDayOfWeek,
-                            onCheckedChange = { preferences.setShowDayOfWeek(it) }
-                        )
-
-                        if (settings.showDayOfWeek) {
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
 
                             SettingsSwitchRow(
-                                title = stringResource(R.string.settings_abbreviate_day_title),
-                                subtitle = stringResource(R.string.settings_abbreviate_day_desc),
-                                checked = settings.abbreviateDayOfWeek,
-                                onCheckedChange = { preferences.setAbbreviateDayOfWeek(it) }
+                                title = stringResource(R.string.settings_relative_dates_title),
+                                subtitle = stringResource(R.string.settings_relative_dates_desc),
+                                checked = settings.useRelativeDates,
+                                onCheckedChange = { preferences.setUseRelativeDates(it) }
+                            )
+
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                            SettingsSwitchRow(
+                                title = stringResource(R.string.settings_show_day_of_week_title),
+                                subtitle = stringResource(R.string.settings_show_day_of_week_desc),
+                                checked = settings.showDayOfWeek,
+                                onCheckedChange = { preferences.setShowDayOfWeek(it) }
+                            )
+
+                            AnimatedVisibility(
+                                visible = settings.showDayOfWeek,
+                                enter = fadeIn() + expandVertically(),
+                                exit = fadeOut() + shrinkVertically()
+                            ) {
+                                Column {
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), modifier = Modifier.padding(bottom = 14.dp))
+
+                                    SettingsSwitchRow(
+                                        title = stringResource(R.string.settings_abbreviate_day_title),
+                                        subtitle = stringResource(R.string.settings_abbreviate_day_desc),
+                                        checked = settings.abbreviateDayOfWeek,
+                                        onCheckedChange = { preferences.setAbbreviateDayOfWeek(it) }
+                                    )
+                                }
+                            }
+
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                            SettingsSwitchRow(
+                                title = stringResource(R.string.settings_smart_year_title),
+                                subtitle = stringResource(R.string.settings_smart_year_desc),
+                                checked = settings.smartYearHiding,
+                                onCheckedChange = { preferences.setSmartYearHiding(it) }
                             )
                         }
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-
-                        SettingsSwitchRow(
-                            title = stringResource(R.string.settings_smart_year_title),
-                            subtitle = stringResource(R.string.settings_smart_year_desc),
-                            checked = settings.smartYearHiding,
-                            onCheckedChange = { preferences.setSmartYearHiding(it) }
-                        )
                     }
 
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -1268,6 +1287,15 @@ fun SettingsScreen(
                     }
 
                     OutlinedButton(
+                        onClick = { showExcludedFoldersDialog = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Outlined.FolderOff, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.excluded_folders_title))
+                    }
+
+                    OutlinedButton(
                         onClick = ::clearCache,
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -1404,6 +1432,7 @@ fun SettingsScreen(
             currentFormat = settings.timelineDateFormat,
             customPattern = settings.customTimelineDateFormat,
             showDayOfWeek = settings.showDayOfWeek,
+            abbreviateDayOfWeek = settings.abbreviateDayOfWeek,
             onDismiss = { showDateFormatDialog = false },
             onFormatSelected = { format ->
                 preferences.setTimelineDateFormat(format)
@@ -1449,6 +1478,47 @@ fun SettingsScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     TimePicker(state = timePickerState)
+                }
+            }
+        )
+    }
+
+    if (showExcludedFoldersDialog) {
+        AlertDialog(
+            onDismissRequest = { showExcludedFoldersDialog = false },
+            title = { Text(stringResource(R.string.excluded_folders_title)) },
+            text = {
+                if (excludedFolders.isEmpty()) {
+                    Text(stringResource(R.string.no_excluded_folders), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)
+                    ) {
+                        items(excludedFolders.toList()) { folderPath ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(folderPath.substringAfterLast('/'), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                    Text(folderPath, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                IconButton(onClick = {
+                                    onRemoveExcludedFolder(folderPath)
+                                    Toast.makeText(context, R.string.toast_folder_unexcluded, Toast.LENGTH_SHORT).show()
+                                }) {
+                                    Icon(Icons.Outlined.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showExcludedFoldersDialog = false }) {
+                    Text(stringResource(R.string.action_done_editing))
                 }
             }
         )

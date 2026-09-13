@@ -79,7 +79,11 @@ data class ExifMetadata(
     val cameraMake: String? = null,
     val lensModel: String? = null,
     val userComment: String? = null,
+    val xpComment: String? = null,
+    val jpegComments: List<String> = emptyList(),
     val imageDescription: String? = null,
+    val imageUniqueId: String? = null,
+    val offsetTimeOriginal: String? = null,
     val artist: String? = null,
     val copyright: String? = null,
     val software: String? = null,
@@ -195,8 +199,60 @@ fun cleanImageDescription(raw: String?): String? {
     return text
 }
 
+fun extractJpegComments(stream: java.io.InputStream): List<String> {
+    val comments = mutableListOf<String>()
+    try {
+        val b1 = stream.read()
+        val b2 = stream.read()
+        if (b1 != 0xFF || b2 != 0xD8) return emptyList()
+
+        while (true) {
+            val prefix = stream.read()
+            if (prefix != 0xFF) break
+            var marker = stream.read()
+            while (marker == 0xFF) {
+                marker = stream.read()
+            }
+            if (marker == -1 || marker == 0xD9 || marker == 0xDA) break
+
+            val lenHigh = stream.read()
+            val lenLow = stream.read()
+            if (lenHigh == -1 || lenLow == -1) break
+            val length = (lenHigh shl 8) or lenLow
+            val payloadLen = length - 2
+            if (payloadLen <= 0) continue
+
+            if (marker == 0xFE) {
+                val bytes = ByteArray(payloadLen)
+                var read = 0
+                while (read < payloadLen) {
+                    val r = stream.read(bytes, read, payloadLen - read)
+                    if (r == -1) break
+                    read += r
+                }
+                val text = String(bytes, Charsets.UTF_8).trim().trim('\u0000')
+                if (text.isNotBlank()) {
+                    comments.add(text)
+                }
+            } else {
+                var skipped = 0L
+                while (skipped < payloadLen) {
+                    val s = stream.skip(payloadLen - skipped)
+                    if (s <= 0) break
+                    skipped += s
+                }
+            }
+        }
+    } catch (_: Exception) {}
+    return comments
+}
+
 fun loadExifMetadata(context: android.content.Context, uri: Uri): ExifMetadata {
     return try {
+        val jpegComments = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { extractJpegComments(it) }
+        }.getOrNull().orEmpty()
+
         context.contentResolver.openInputStream(uri)?.use { stream ->
             val exif = androidx.exifinterface.media.ExifInterface(stream)
             val make = cleanExifString(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_MAKE))
@@ -208,8 +264,17 @@ fun loadExifMetadata(context: android.content.Context, uri: Uri): ExifMetadata {
                 ?: cleanExifString(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_LENS_MAKE))
             val documentName = cleanExifString(exif.getAttribute("DocumentName"))
                 ?: cleanExifString(exif.getAttribute("XPTitle"))
-            val userComment = cleanUserComment(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_USER_COMMENT))
+            val rawUserComment = cleanUserComment(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_USER_COMMENT))
+            val xpComment = cleanExifString(exif.getAttribute("XPComment"))
+            val userComment = if (jpegComments.isNotEmpty() && jpegComments.contains(rawUserComment)) {
+                null
+            } else {
+                rawUserComment
+            }
             val imageDesc = cleanImageDescription(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_IMAGE_DESCRIPTION))
+            val imageUniqueId = cleanExifString(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_IMAGE_UNIQUE_ID))
+            val offsetTime = cleanExifString(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_OFFSET_TIME_ORIGINAL))
+                ?: cleanExifString(exif.getAttribute("OffsetTime"))
             val artist = cleanExifString(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_ARTIST))
             val copyright = cleanExifString(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_COPYRIGHT))
             val software = cleanExifString(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_SOFTWARE))
@@ -256,7 +321,11 @@ fun loadExifMetadata(context: android.content.Context, uri: Uri): ExifMetadata {
                 cameraMake = make,
                 lensModel = lensModel,
                 userComment = userComment,
+                xpComment = xpComment,
+                jpegComments = jpegComments,
                 imageDescription = imageDesc,
+                imageUniqueId = imageUniqueId,
+                offsetTimeOriginal = offsetTime,
                 artist = artist,
                 copyright = copyright,
                 software = software,
