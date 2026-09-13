@@ -31,6 +31,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -60,6 +61,7 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -141,6 +143,9 @@ import androidx.compose.runtime.produceState
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshState
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -332,8 +337,24 @@ class MainActivity : ComponentActivity() {
         IrisPhotoWidget.refreshAll(this)
         enableEdgeToEdge()
         val settingsPreferences = SettingsPreferences(this)
-        if (settingsPreferences.state.value.language.isNotEmpty()) {
-            com.iris.gallery.ui.setAppLanguage(this, settingsPreferences.state.value.language)
+        val initialSettings = settingsPreferences.state.value
+        val isDark = when (initialSettings.themeMode) {
+            com.iris.gallery.data.ThemeMode.LIGHT -> false
+            com.iris.gallery.data.ThemeMode.DARK -> true
+            com.iris.gallery.data.ThemeMode.SYSTEM -> (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        }
+        val bgColor = when {
+            isDark && initialSettings.amoledBlack -> android.graphics.Color.BLACK
+            isDark -> 0xFF141218.toInt()
+            else -> 0xFFFFF8FF.toInt()
+        }
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(bgColor))
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !isDark
+            isAppearanceLightNavigationBars = !isDark
+        }
+        if (initialSettings.language.isNotEmpty()) {
+            com.iris.gallery.ui.setAppLanguage(this, initialSettings.language)
         }
         setContent {
             val activeIntent = currentIntentState.value ?: intent
@@ -422,8 +443,18 @@ private fun GalleryApp(
         permitted = permissions.all { permission -> it[permission] == true }
     }
     val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
-        if (it.resultCode == Activity.RESULT_OK) viewModel.refresh()
+    var pendingPermanentDeleteMedia by remember { mutableStateOf<List<MediaImage>?>(null) }
+    val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        val pending = pendingPermanentDeleteMedia
+        pendingPermanentDeleteMedia = null
+        if (result.resultCode == Activity.RESULT_OK) {
+            if (pending != null) {
+                val delIds = pending.map { it.id }.toSet()
+                val delPaths = pending.map { it.path }.toSet()
+                viewModel.markMediaDeleted(delIds, delPaths)
+            }
+            viewModel.refresh(showLoading = false)
+        }
     }
     var pendingMetadata by remember { mutableStateOf<Triple<MediaImage, ContentValues, ExifEditRequest>?>(null) }
     val metadataWriteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
@@ -470,7 +501,12 @@ private fun GalleryApp(
         val pending = pendingVaultMove
         pendingVaultMove = null
         if (result.resultCode == Activity.RESULT_OK) {
-            viewModel.refresh()
+            if (pending != null) {
+                val delIds = pending.originalMedia.map { it.id }.toSet()
+                val delPaths = pending.originalMedia.map { it.path }.toSet()
+                viewModel.markMediaDeleted(delIds, delPaths)
+            }
+            viewModel.refresh(showLoading = false)
             val count = pending?.vaultedMedia?.size ?: 0
             Toast.makeText(context, context.getString(R.string.toast_items_vaulted, count), Toast.LENGTH_SHORT).show()
         } else {
@@ -488,7 +524,12 @@ private fun GalleryApp(
         val pending = pendingTrashMove
         pendingTrashMove = null
         if (result.resultCode == Activity.RESULT_OK) {
-            viewModel.refresh()
+            if (pending != null) {
+                val delIds = pending.originalMedia.map { it.id }.toSet()
+                val delPaths = pending.originalMedia.map { it.path }.toSet()
+                viewModel.markMediaDeleted(delIds, delPaths)
+            }
+            viewModel.refresh(showLoading = false)
             val count = pending?.trashedMedia?.size ?: 0
             Toast.makeText(context, context.getString(R.string.toast_items_moved_to_trash, count), Toast.LENGTH_SHORT).show()
         } else {
@@ -686,14 +727,23 @@ private fun GalleryApp(
                         }
                     }
                 }
+                val onRescanMedia: () -> Unit = {
+                    Toast.makeText(context, R.string.toast_rescan_started, Toast.LENGTH_SHORT).show()
+                    viewModel.rescanMedia {
+                        Toast.makeText(context, R.string.toast_rescan_completed, Toast.LENGTH_SHORT).show()
+                    }
+                }
                 val onDeleteFromLocked: (List<MediaImage>) -> Unit = { mediaList ->
                     if (mediaList.isNotEmpty()) {
                         val vaultItems = mediaList.filter { it.id < 0 || it.path.startsWith(context.filesDir.absolutePath) }
                         val galleryLockedItems = mediaList.filter { it.id > 0 && !it.path.startsWith(context.filesDir.absolutePath) }
                         if (vaultItems.isNotEmpty()) {
                             coroutineScope.launch {
+                                val delIds = vaultItems.map { it.id }.toSet()
+                                val delPaths = vaultItems.map { it.path }.toSet()
+                                viewModel.markMediaDeleted(delIds, delPaths)
                                 viewModel.deletePermanentlyFromVault(vaultItems)
-                                viewModel.refresh()
+                                viewModel.refresh(showLoading = false)
                                 Toast.makeText(context, "${vaultItems.size} item(s) permanently deleted", Toast.LENGTH_SHORT).show()
                             }
                         }
@@ -701,11 +751,18 @@ private fun GalleryApp(
                             if (Build.VERSION.SDK_INT >= 30) runCatching {
                                 val request = MediaStore.createDeleteRequest(context.contentResolver,
                                     galleryLockedItems.map { canonicalMediaUri(it) })
+                                pendingPermanentDeleteMedia = galleryLockedItems
                                 deleteLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
-                            }.onFailure { Toast.makeText(context, "Could not request deletion", Toast.LENGTH_LONG).show() }
+                            }.onFailure {
+                                pendingPermanentDeleteMedia = null
+                                Toast.makeText(context, "Could not request deletion", Toast.LENGTH_LONG).show()
+                            }
                             else runCatching {
+                                val delIds = galleryLockedItems.map { it.id }.toSet()
+                                val delPaths = galleryLockedItems.map { it.path }.toSet()
+                                viewModel.markMediaDeleted(delIds, delPaths)
                                 galleryLockedItems.forEach { context.contentResolver.delete(canonicalMediaUri(it), null, null) }
-                                viewModel.refresh()
+                                viewModel.refresh(showLoading = false)
                             }
                         }
                     }
@@ -763,7 +820,10 @@ private fun GalleryApp(
                                     val moveResult = viewModel.moveToTrash(media)
                                     if (moveResult.trashedMedia.isNotEmpty()) {
                                         if (moveResult.silentSuccess) {
-                                            viewModel.refresh()
+                                            val delIds = moveResult.originalMedia.map { it.id }.toSet()
+                                            val delPaths = moveResult.originalMedia.map { it.path }.toSet()
+                                            viewModel.markMediaDeleted(delIds, delPaths)
+                                            viewModel.refresh(showLoading = false)
                                             Toast.makeText(context, context.getString(R.string.toast_items_moved_to_trash, moveResult.trashedMedia.size), Toast.LENGTH_SHORT).show()
                                         } else if (Build.VERSION.SDK_INT >= 30) {
                                             runCatching {
@@ -786,7 +846,10 @@ private fun GalleryApp(
                                                 }.getOrDefault(false)
                                             }
                                             if (allDeleted) {
-                                                viewModel.refresh()
+                                                val delIds = moveResult.originalMedia.map { it.id }.toSet()
+                                                val delPaths = moveResult.originalMedia.map { it.path }.toSet()
+                                                viewModel.markMediaDeleted(delIds, delPaths)
+                                                viewModel.refresh(showLoading = false)
                                                 Toast.makeText(context, context.getString(R.string.toast_items_moved_to_trash, moveResult.trashedMedia.size), Toast.LENGTH_SHORT).show()
                                             } else {
                                                 viewModel.rollbackTrashMove(moveResult.trashedMedia)
@@ -810,6 +873,9 @@ private fun GalleryApp(
                                 val externalItems = media.filter { it.id > 0 && !it.path.startsWith(context.filesDir.absolutePath) }
                                 coroutineScope.launch {
                                     if (internalItems.isNotEmpty()) {
+                                        val delIds = internalItems.map { it.id }.toSet()
+                                        val delPaths = internalItems.map { it.path }.toSet()
+                                        viewModel.markMediaDeleted(delIds, delPaths)
                                         viewModel.deletePermanently(internalItems)
                                     }
                                     if (externalItems.isNotEmpty()) {
@@ -819,17 +885,23 @@ private fun GalleryApp(
                                                     context.contentResolver,
                                                     externalItems.map { canonicalMediaUri(it) }
                                                 )
+                                                pendingPermanentDeleteMedia = externalItems
                                                 deleteLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
                                             }.onFailure {
+                                                pendingPermanentDeleteMedia = null
                                                 Toast.makeText(context, context.getString(R.string.toast_could_not_request_removal), Toast.LENGTH_SHORT).show()
                                             }
                                         } else {
+                                            val delIds = externalItems.map { it.id }.toSet()
+                                            val delPaths = externalItems.map { it.path }.toSet()
+                                            viewModel.markMediaDeleted(delIds, delPaths)
                                             viewModel.deletePermanently(externalItems)
                                         }
                                     }
                                 }
                             }
                         },
+                        onRescanMedia = onRescanMedia,
                         onEditMetadata = { media, request ->
                             val values = ContentValues().apply {
                                 put(MediaStore.MediaColumns.DISPLAY_NAME, request.displayName)
@@ -924,7 +996,9 @@ private fun GalleryApp(
 }
 
 private fun canonicalMediaUri(item: MediaImage): Uri {
-    return if (item.id > 0) {
+    return if (item.uri.toString().startsWith("content://media/")) {
+        item.uri
+    } else if (item.id > 0) {
         if (item.isVideo) ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, item.id)
         else ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, item.id)
     } else {
@@ -955,6 +1029,64 @@ private fun PermissionScreen(onGrant: () -> Unit) {
         Text(stringResource(R.string.permission_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text(stringResource(R.string.permission_desc), modifier = Modifier.padding(vertical = 16.dp))
         Button(onClick = onGrant) { Text(stringResource(R.string.permission_button)) }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BoxScope.IrisPullToRefreshIndicator(
+    state: PullToRefreshState,
+    isRefreshing: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    var wasRefreshing by remember { mutableStateOf(false) }
+    var isDismissingInPlace by remember { mutableStateOf(false) }
+    val dismissAlpha = remember { androidx.compose.animation.core.Animatable(1f) }
+    val dismissScale = remember { androidx.compose.animation.core.Animatable(1f) }
+
+    LaunchedEffect(isRefreshing) {
+        if (isRefreshing) {
+            wasRefreshing = true
+            isDismissingInPlace = false
+            dismissAlpha.snapTo(1f)
+            dismissScale.snapTo(1f)
+        } else if (wasRefreshing) {
+            wasRefreshing = false
+            isDismissingInPlace = true
+            launch {
+                dismissAlpha.animateTo(0f, tween(220, easing = LinearOutSlowInEasing))
+            }
+            launch {
+                dismissScale.animateTo(0.65f, tween(220, easing = LinearOutSlowInEasing))
+            }
+            isDismissingInPlace = false
+            dismissAlpha.snapTo(1f)
+            dismissScale.snapTo(1f)
+        }
+    }
+
+    if (state.distanceFraction > 0f && !isRefreshing) {
+        isDismissingInPlace = false
+    }
+
+    if (isDismissingInPlace) {
+        PullToRefreshDefaults.Indicator(
+            state = state,
+            isRefreshing = true,
+            modifier = modifier
+                .align(Alignment.TopCenter)
+                .graphicsLayer {
+                    alpha = dismissAlpha.value
+                    scaleX = dismissScale.value
+                    scaleY = dismissScale.value
+                }
+        )
+    } else {
+        PullToRefreshDefaults.Indicator(
+            state = state,
+            isRefreshing = isRefreshing,
+            modifier = modifier.align(Alignment.TopCenter)
+        )
     }
 }
 
@@ -999,6 +1131,7 @@ private fun GalleryScaffold(
     onScanDuplicates: () -> Unit,
     onCancelDuplicateScan: () -> Unit,
     onRefresh: () -> Unit = {},
+    onRescanMedia: () -> Unit = {},
     onRenameMedia: (MediaImage, String, (MediaImage?) -> Unit) -> Unit = { _, _, _ -> },
     initialMemories: Boolean,
     initialViewUri: Uri? = null,
@@ -1469,37 +1602,56 @@ private fun GalleryScaffold(
           modifier = Modifier.fillMaxSize(),
         ) { page ->
           when (page) {
-            0 -> PullToRefreshBox(
-              isRefreshing = loading,
-              onRefresh = onRefresh,
-              modifier = Modifier.fillMaxSize(),
-            ) {
-              if (displayedPhotos.isNotEmpty()) PhotoGrid(
-                displayedPhotos, padding, photoGridState, cellSize = photoCellSize, onCellSizeChange = onCellSizeChange,
-                showTimeline = settings.showTimelineHeaders && fileSearchQuery.isBlank(),
-                timelineDateFormat = settings.timelineDateFormat,
-                customTimelineDateFormat = settings.customTimelineDateFormat,
-                useRelativeDates = settings.useRelativeDates,
-                showDayOfWeek = settings.showDayOfWeek,
-                abbreviateDayOfWeek = settings.abbreviateDayOfWeek,
-                smartYearHiding = settings.smartYearHiding,
-                cornerStyle = settings.cornerStyle,
-                gridSpacing = settings.gridSpacing,
-                showVideoDuration = settings.showVideoDurationBadge,
-                showFormatBadge = settings.showMediaFormatBadge,
-                selectedIds = selectedIds,
-                onToggleSelection = if (onPick == null) ::toggleSelection else null,
-                onSetSelection = if (onPick == null) ::setSelection else null,
-                onSetDateSelection = if (onPick == null) ::setDateSelection else null,
-              ) { if (selectedIds.isNotEmpty()) toggleSelection(it.id) else if (onPick != null) onPick(it) else { viewerImages = displayedPhotos; selectedId = it.id } }
-              else if (fileSearchQuery.isNotBlank()) EmptyState(stringResource(R.string.empty_search_files, fileSearchQuery), padding)
-              else EmptyState(stringResource(R.string.empty_photos), padding)
+            0 -> {
+              val pullRefreshState0 = rememberPullToRefreshState()
+              PullToRefreshBox(
+                state = pullRefreshState0,
+                isRefreshing = loading,
+                onRefresh = onRefresh,
+                modifier = Modifier.fillMaxSize(),
+                indicator = {
+                  IrisPullToRefreshIndicator(
+                    state = pullRefreshState0,
+                    isRefreshing = loading,
+                  )
+                }
+              ) {
+                if (displayedPhotos.isNotEmpty()) PhotoGrid(
+                  displayedPhotos, padding, photoGridState, cellSize = photoCellSize, onCellSizeChange = onCellSizeChange,
+                  showTimeline = settings.showTimelineHeaders && fileSearchQuery.isBlank(),
+                  timelineDateFormat = settings.timelineDateFormat,
+                  customTimelineDateFormat = settings.customTimelineDateFormat,
+                  useRelativeDates = settings.useRelativeDates,
+                  showDayOfWeek = settings.showDayOfWeek,
+                  abbreviateDayOfWeek = settings.abbreviateDayOfWeek,
+                  smartYearHiding = settings.smartYearHiding,
+                  cornerStyle = settings.cornerStyle,
+                  gridSpacing = settings.gridSpacing,
+                  showVideoDuration = settings.showVideoDurationBadge,
+                  showFormatBadge = settings.showMediaFormatBadge,
+                  selectedIds = selectedIds,
+                  onToggleSelection = if (onPick == null) ::toggleSelection else null,
+                  onSetSelection = if (onPick == null) ::setSelection else null,
+                  onSetDateSelection = if (onPick == null) ::setDateSelection else null,
+                ) { if (selectedIds.isNotEmpty()) toggleSelection(it.id) else if (onPick != null) onPick(it) else { viewerImages = displayedPhotos; selectedId = it.id } }
+                else if (fileSearchQuery.isNotBlank()) EmptyState(stringResource(R.string.empty_search_files, fileSearchQuery), padding)
+                else EmptyState(stringResource(R.string.empty_photos), padding)
+              }
             }
-            1 -> PullToRefreshBox(
-              isRefreshing = loading,
-              onRefresh = onRefresh,
-              modifier = Modifier.fillMaxSize(),
-            ) {
+            1 -> {
+              val pullRefreshState1 = rememberPullToRefreshState()
+              PullToRefreshBox(
+                state = pullRefreshState1,
+                isRefreshing = loading,
+                onRefresh = onRefresh,
+                modifier = Modifier.fillMaxSize(),
+                indicator = {
+                  IrisPullToRefreshIndicator(
+                    state = pullRefreshState1,
+                    isRefreshing = loading,
+                  )
+                }
+              ) {
               if (selectedAlbum != null) {
                 if (displayedAlbumPhotos.isNotEmpty()) PhotoGrid(
                   displayedAlbumPhotos, padding, albumPhotoGridState, cellSize = photoCellSize, onCellSizeChange = onCellSizeChange,
@@ -1538,6 +1690,7 @@ private fun GalleryScaffold(
                 onOrderChanged = onSetAlbumOrder
               ) { selectedAlbumId = it.id }
             }
+          }
             else -> {
                 if (page == 3) {
                     when (librarySection) {
@@ -1768,7 +1921,11 @@ private fun GalleryScaffold(
                             onTrash = handleTrash,
                         )
                         else -> LibraryScreen(padding, trashed.size, lockedMedia.size) {
-                            librarySection = it
+                            if (it == "rescan") {
+                                onRescanMedia()
+                            } else {
+                                librarySection = it
+                            }
                         }
                     }
                     return@HorizontalPager
@@ -2217,6 +2374,7 @@ private fun GalleryScaffold(
                 settings = settings,
                 preferences = settingsPreferences,
                 onOpenAbout = { activeOverlayScreen = "about" },
+                onRescanMedia = onRescanMedia,
                 onBack = { activeOverlayScreen = null }
             )
         }
@@ -2446,7 +2604,7 @@ private fun PhotoGrid(
                 val layoutInfo = gridState.layoutInfo
                 val totalItems = layoutInfo.totalItemsCount
                 val visibleItems = layoutInfo.visibleItemsInfo
-                if (totalItems == 0 || visibleItems.isEmpty()) {
+                if (totalItems <= 1 || visibleItems.isEmpty()) {
                     0f
                 } else if (!gridState.canScrollForward) {
                     1f
@@ -2454,11 +2612,13 @@ private fun PhotoGrid(
                     0f
                 } else {
                     val firstVisible = gridState.firstVisibleItemIndex
-                    val lastVisible = visibleItems.last().index
-                    val visibleCount = (lastVisible - firstVisible + 1).coerceAtLeast(1)
-                    val maxScrollable = (totalItems - visibleCount).coerceAtLeast(1)
-                    val firstItemHeight = visibleItems.first().size.height.toFloat().coerceAtLeast(1f)
-                    val itemOffsetProgress = (gridState.firstVisibleItemScrollOffset.toFloat() / firstItemHeight).coerceIn(0f, 1f)
+                    val mediaItem = visibleItems.firstOrNull { it.key is Long }
+                    val mediaHeight = mediaItem?.size?.height?.toFloat() ?: visibleItems.first().size.height.toFloat().coerceAtLeast(1f)
+                    val viewportHeight = layoutInfo.viewportSize.height.toFloat().coerceAtLeast(1f)
+                    val numColumns = visibleItems.filter { it.key is Long }.map { it.offset.x }.distinct().size.coerceAtLeast(1)
+                    val estimatedItemsPerScreen = ((viewportHeight / mediaHeight) * numColumns).toInt().coerceIn(1, totalItems)
+                    val maxScrollable = (totalItems - estimatedItemsPerScreen).coerceAtLeast(1)
+                    val itemOffsetProgress = (gridState.firstVisibleItemScrollOffset.toFloat() / mediaHeight).coerceIn(0f, 1f)
                     ((firstVisible + itemOffsetProgress) / maxScrollable.toFloat()).coerceIn(0f, 1f)
                 }
             }
@@ -2720,26 +2880,32 @@ private fun PhotoGrid(
                                     return (topTarget / maxTravel).coerceIn(0f, 1f)
                                 }
 
-                                var fraction = calculateFraction(down.position.y)
-                                scrubFraction = fraction
-                                var finalTarget = (fraction * timelineItems.lastIndex).toInt().coerceIn(0, timelineItems.lastIndex)
-                                scrubTargetIndex = finalTarget
-                                scrubberScope.launch { gridState.scrollToItem(finalTarget) }
+                                var lastScrolledTarget = -1
+                                fun updateTarget(y: Float) {
+                                    val frac = calculateFraction(y)
+                                    scrubFraction = frac
+                                    val target = (frac * timelineItems.lastIndex).toInt().coerceIn(0, timelineItems.lastIndex)
+                                    scrubTargetIndex = target
+                                    if (target != lastScrolledTarget) {
+                                        lastScrolledTarget = target
+                                        scrubberScope.launch { gridState.scrollToItem(target) }
+                                    }
+                                }
+
+                                updateTarget(down.position.y)
 
                                 try {
                                     var change = down
                                     do {
-                                        fraction = calculateFraction(change.position.y)
-                                        scrubFraction = fraction
-                                        finalTarget = (fraction * timelineItems.lastIndex).toInt().coerceIn(0, timelineItems.lastIndex)
-                                        scrubTargetIndex = finalTarget
-                                        scrubberScope.launch { gridState.scrollToItem(finalTarget) }
+                                        updateTarget(change.position.y)
                                         change.consume()
                                         change = awaitPointerEvent().changes.first()
                                     } while (change.pressed)
                                 } finally {
                                     scrubberDragging = false
-                                    scrubberScope.launch { gridState.scrollToItem(finalTarget) }
+                                    if (scrubTargetIndex != lastScrolledTarget) {
+                                        scrubberScope.launch { gridState.scrollToItem(scrubTargetIndex) }
+                                    }
                                 }
                             }
                         }

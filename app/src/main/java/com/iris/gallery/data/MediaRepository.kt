@@ -4,6 +4,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.provider.MediaStore
 import android.os.Bundle
+import android.os.Environment
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.util.AtomicFile
@@ -29,11 +30,74 @@ class MediaRepository(private val context: Context) {
 
     private val recentMovedOrDeletedIds = java.util.concurrent.ConcurrentHashMap<Long, Long>()
     private val recentMovedOrDeletedPaths = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val verifiedPathsCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     fun markMovedOrDeleted(ids: Set<Long>, paths: Set<String>) {
         val now = System.currentTimeMillis()
         ids.forEach { if (it > 0) recentMovedOrDeletedIds[it] = now }
-        paths.forEach { if (it.isNotBlank()) recentMovedOrDeletedPaths[it] = now }
+        paths.forEach {
+            if (it.isNotBlank()) {
+                recentMovedOrDeletedPaths[it] = now
+                verifiedPathsCache.remove(it)
+            }
+        }
+    }
+
+    fun clearVerifiedPathsCache() {
+        verifiedPathsCache.clear()
+    }
+
+    suspend fun rescanStorage(): Int = withContext(Dispatchers.IO) {
+        verifiedPathsCache.clear()
+        val storageRoots = mutableListOf<File>()
+        runCatching { Environment.getExternalStorageDirectory()?.takeIf { it.exists() }?.let { storageRoots.add(it) } }
+        runCatching {
+            androidx.core.content.ContextCompat.getExternalFilesDirs(context, null).forEach { dir ->
+                if (dir != null) {
+                    val path = dir.absolutePath
+                    val rootPath = path.substringBefore("/Android/data")
+                    if (rootPath.isNotBlank() && rootPath != path) {
+                        val rootFile = File(rootPath)
+                        if (rootFile.exists() && rootFile !in storageRoots) {
+                            storageRoots.add(rootFile)
+                        }
+                    }
+                }
+            }
+        }
+
+        val pathsToScan = mutableListOf<String>()
+        val mediaFolders = listOf("DCIM", "Pictures", "Movies", "Download", "Documents")
+        for (root in storageRoots) {
+            pathsToScan.add(root.absolutePath)
+            for (folder in mediaFolders) {
+                val f = File(root, folder)
+                if (f.exists()) {
+                    pathsToScan.add(f.absolutePath)
+                    f.listFiles()?.filter { it.isDirectory }?.forEach { sub ->
+                        pathsToScan.add(sub.absolutePath)
+                    }
+                }
+            }
+        }
+
+        if (pathsToScan.isNotEmpty()) {
+            val countLatch = kotlinx.coroutines.CompletableDeferred<Int>()
+            var scanned = 0
+            android.media.MediaScannerConnection.scanFile(
+                context,
+                pathsToScan.toTypedArray(),
+                null
+            ) { _, _ ->
+                scanned++
+                if (scanned >= pathsToScan.size) {
+                    countLatch.complete(scanned)
+                }
+            }
+            kotlinx.coroutines.withTimeoutOrNull(8_000) { countLatch.await() } ?: scanned
+        } else {
+            0
+        }
     }
 
     suspend fun loadImages(trashed: Boolean = false): List<MediaImage> = withContext(Dispatchers.IO) {
@@ -41,7 +105,17 @@ class MediaRepository(private val context: Context) {
         recentMovedOrDeletedIds.entries.removeIf { now - it.value > 15_000 }
         recentMovedOrDeletedPaths.entries.removeIf { now - it.value > 15_000 }
 
-        val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        val collectionsToQuery = if (android.os.Build.VERSION.SDK_INT >= 29) {
+            val names = runCatching { MediaStore.getExternalVolumeNames(context) }.getOrNull()?.filter { it.isNotBlank() }
+            if (!names.isNullOrEmpty()) {
+                names.map { MediaStore.Files.getContentUri(it) }
+            } else {
+                listOf(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL))
+            }
+        } else {
+            listOf(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL))
+        }
+
         val projection = arrayOf(
             MediaStore.Images.Media._ID,
             MediaStore.Images.Media.DISPLAY_NAME,
@@ -88,96 +162,114 @@ class MediaRepository(private val context: Context) {
                 add(MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString())
             }.toTypedArray()
             val order = "${MediaStore.Images.Media.DATE_TAKEN} DESC, ${MediaStore.Images.Media.DATE_ADDED} DESC"
-            val cursorResult = if (android.os.Build.VERSION.SDK_INT >= 30) {
-                context.contentResolver.query(collection, projection, Bundle().apply {
-                    putString(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION, mediaSelection)
-                    putStringArray(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
-                    putString(android.content.ContentResolver.QUERY_ARG_SQL_SORT_ORDER, order)
-                    putInt(MediaStore.QUERY_ARG_MATCH_TRASHED,
-                        if (trashed) MediaStore.MATCH_ONLY else MediaStore.MATCH_EXCLUDE)
-                }, null)
-            } else {
-                context.contentResolver.query(collection, projection, mediaSelection, selectionArgs, order)
-            }
-            cursorResult?.use { cursor ->
-                val id = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
-                val name = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
-                val taken = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
-                val added = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
-                val width = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.WIDTH)
-                val height = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
-                val bucketId = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_ID)
-                val bucketName = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
-                val mediaType = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
-                val duration = cursor.getColumnIndexOrThrow(MediaStore.Video.VideoColumns.DURATION)
-                val mimeType = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
-                val size = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
-                val orientation = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.ORIENTATION)
-                val title = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.TITLE)
-                val dataCol = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
-                val relPathCol = if (android.os.Build.VERSION.SDK_INT >= 29) cursor.getColumnIndex(MediaStore.Images.Media.RELATIVE_PATH) else -1
-                val volCol = if (android.os.Build.VERSION.SDK_INT >= 29) cursor.getColumnIndex(MediaStore.MediaColumns.VOLUME_NAME) else -1
 
-                while (cursor.moveToNext()) {
-                    val mediaId = cursor.getLong(id)
-                    if (recentMovedOrDeletedIds.containsKey(mediaId)) {
-                        continue
-                    }
-                    val isVid = cursor.getInt(mediaType) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
-                    val displayName = cursor.getString(name).orEmpty()
-                    val rawData = if (dataCol >= 0) cursor.getString(dataCol).orEmpty() else ""
-                    val relPath = if (relPathCol >= 0) cursor.getString(relPathCol).orEmpty() else ""
-                    val volName = if (volCol >= 0) cursor.getString(volCol).orEmpty() else ""
+            for (collection in collectionsToQuery) {
+                val cursorResult = if (android.os.Build.VERSION.SDK_INT >= 30) {
+                    context.contentResolver.query(collection, projection, Bundle().apply {
+                        putString(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION, mediaSelection)
+                        putStringArray(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+                        putString(android.content.ContentResolver.QUERY_ARG_SQL_SORT_ORDER, order)
+                        putInt(MediaStore.QUERY_ARG_MATCH_TRASHED,
+                            if (trashed) MediaStore.MATCH_ONLY else MediaStore.MATCH_EXCLUDE)
+                    }, null)
+                } else {
+                    context.contentResolver.query(collection, projection, mediaSelection, selectionArgs, order)
+                }
+                cursorResult?.use { cursor ->
+                    val id = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                    val name = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+                    val taken = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
+                    val added = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_ADDED)
+                    val width = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.WIDTH)
+                    val height = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.HEIGHT)
+                    val bucketId = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_ID)
+                    val bucketName = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.BUCKET_DISPLAY_NAME)
+                    val mediaType = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
+                    val duration = cursor.getColumnIndexOrThrow(MediaStore.Video.VideoColumns.DURATION)
+                    val mimeType = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
+                    val size = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE)
+                    val orientation = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.ORIENTATION)
+                    val title = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.TITLE)
+                    val dataCol = cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+                    val relPathCol = if (android.os.Build.VERSION.SDK_INT >= 29) cursor.getColumnIndex(MediaStore.Images.Media.RELATIVE_PATH) else -1
+                    val volCol = if (android.os.Build.VERSION.SDK_INT >= 29) cursor.getColumnIndex(MediaStore.MediaColumns.VOLUME_NAME) else -1
 
-                    val filePath = when {
-                        rawData.isNotBlank() -> rawData
-                        relPath.isNotBlank() && volName.isNotBlank() && volName != "external_primary" -> "/storage/$volName/$relPath$displayName"
-                        relPath.isNotBlank() -> "/storage/emulated/0/$relPath$displayName"
-                        else -> ""
-                    }
-
-                    val mediaUri = if (isVid) {
-                        ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, mediaId)
-                    } else {
-                        ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, mediaId)
-                    }
-                    if (filePath.isNotBlank()) {
-                        if (recentMovedOrDeletedPaths.containsKey(filePath)) {
+                    while (cursor.moveToNext()) {
+                        val mediaId = cursor.getLong(id)
+                        if (recentMovedOrDeletedIds.containsKey(mediaId)) {
                             continue
                         }
-                        val file = File(filePath)
-                        if (!file.exists()) {
-                            android.media.MediaScannerConnection.scanFile(context, arrayOf(filePath), null, null)
-                            if (android.os.Build.VERSION.SDK_INT <= 28) {
-                                runCatching { context.contentResolver.delete(mediaUri, null, null) }
+                        val isVid = cursor.getInt(mediaType) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+                        val displayName = cursor.getString(name).orEmpty()
+                        val rawData = if (dataCol >= 0) cursor.getString(dataCol).orEmpty() else ""
+                        val relPath = if (relPathCol >= 0) cursor.getString(relPathCol).orEmpty() else ""
+                        val volName = if (volCol >= 0) cursor.getString(volCol).orEmpty() else ""
+
+                        val filePath = when {
+                            rawData.isNotBlank() -> rawData
+                            relPath.isNotBlank() && volName.isNotBlank() && volName != "external_primary" -> "/storage/$volName/$relPath$displayName"
+                            relPath.isNotBlank() -> "/storage/emulated/0/$relPath$displayName"
+                            else -> ""
+                        }
+
+                        val volumeForUri = if (volName.isNotBlank() && volName != "external_primary") volName else "external"
+                        val mediaUri = if (isVid) {
+                            ContentUris.withAppendedId(MediaStore.Video.Media.getContentUri(volumeForUri), mediaId)
+                        } else {
+                            ContentUris.withAppendedId(MediaStore.Images.Media.getContentUri(volumeForUri), mediaId)
+                        }
+                        if (filePath.isNotBlank()) {
+                            if (recentMovedOrDeletedPaths.containsKey(filePath)) {
+                                continue
                             }
-                            continue
+                            val isCachedValid = verifiedPathsCache[filePath]?.let { now - it < 15_000 } == true
+                            var exists = isCachedValid
+                            if (!exists) {
+                                val file = File(filePath)
+                                exists = file.exists()
+                                if (!exists && volName.isNotBlank() && volName != "external_primary") {
+                                    exists = runCatching {
+                                        context.contentResolver.openAssetFileDescriptor(mediaUri, "r")?.use { true } ?: false
+                                    }.getOrDefault(false)
+                                }
+                                if (exists) {
+                                    verifiedPathsCache[filePath] = now
+                                }
+                            }
+                            if (!exists) {
+                                verifiedPathsCache.remove(filePath)
+                                android.media.MediaScannerConnection.scanFile(context, arrayOf(filePath), null, null)
+                                if (android.os.Build.VERSION.SDK_INT <= 28) {
+                                    runCatching { context.contentResolver.delete(mediaUri, null, null) }
+                                }
+                                continue
+                            }
                         }
+                        add(
+                            MediaImage(
+                                id = mediaId,
+                                uri = mediaUri,
+                                name = displayName,
+                                dateTaken = cursor.getLong(taken).takeIf { it > 0 }
+                                    ?: cursor.getLong(added) * 1_000,
+                                width = cursor.getInt(width),
+                                height = cursor.getInt(height),
+                                path = filePath,
+                                bucketId = cursor.getLong(bucketId),
+                                bucketName = cursor.getString(bucketName).orEmpty().ifBlank { "Other" },
+                                isVideo = isVid,
+                                durationMs = cursor.getLong(duration),
+                                mimeType = cursor.getString(mimeType).orEmpty(),
+                                sizeBytes = cursor.getLong(size),
+                                orientation = cursor.getInt(orientation),
+                                title = cursor.getString(title).orEmpty(),
+                            ),
+                        )
                     }
-                    add(
-                        MediaImage(
-                            id = mediaId,
-                            uri = mediaUri,
-                            name = displayName,
-                            dateTaken = cursor.getLong(taken).takeIf { it > 0 }
-                                ?: cursor.getLong(added) * 1_000,
-                            width = cursor.getInt(width),
-                            height = cursor.getInt(height),
-                            path = filePath,
-                            bucketId = cursor.getLong(bucketId),
-                            bucketName = cursor.getString(bucketName).orEmpty().ifBlank { "Other" },
-                            isVideo = isVid,
-                            durationMs = cursor.getLong(duration),
-                            mimeType = cursor.getString(mimeType).orEmpty(),
-                            sizeBytes = cursor.getLong(size),
-                            orientation = cursor.getInt(orientation),
-                            title = cursor.getString(title).orEmpty(),
-                        ),
-                    )
                 }
             }
         }
-        val sorted = result.sortedWith(
+        val sorted = result.distinctBy { it.id }.sortedWith(
             compareByDescending<MediaImage> { it.dateTaken }
                 .thenByDescending { it.id }
         )

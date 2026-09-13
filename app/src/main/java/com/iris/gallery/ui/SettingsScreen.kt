@@ -43,6 +43,7 @@ import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.PlayCircle
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.RestartAlt
 import androidx.compose.material.icons.outlined.ViewDay
 import androidx.compose.material3.AlertDialog
@@ -119,6 +120,7 @@ fun SettingsScreen(
     settings: SettingsState,
     preferences: SettingsPreferences,
     onOpenAbout: () -> Unit = {},
+    onRescanMedia: () -> Unit = {},
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -1256,6 +1258,15 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedButton(
+                        onClick = onRescanMedia,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Outlined.Refresh, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.settings_rescan_media))
+                    }
+
                     OutlinedButton(
                         onClick = ::clearCache,
                         modifier = Modifier.fillMaxWidth()

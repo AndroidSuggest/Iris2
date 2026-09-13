@@ -591,4 +591,10 @@
     <string name="toast_rename_success">Renamed to %1$s</string>
     <string name="toast_rename_failed">Could not rename file</string>
     <string name="action_repeat">Repeat</string>
+    <string name="rescan_media_title">Rescan media</string>
+    <string name="rescan_media_subtitle">Scan storage &amp; SD card for missing photos</string>
+    <string name="toast_rescan_started">Scanning storage for media…</string>
+    <string name="toast_rescan_completed">Media scan completed</string>
+    <string name="settings_rescan_media">Rescan media library</string>
+    <string name="settings_rescan_media_desc">Search internal storage and SD cards to re-index missing files</string>
 </resources>

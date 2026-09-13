@@ -204,10 +204,33 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun markMediaDeleted(ids: Collection<Long>, paths: Collection<String> = emptyList()) {
+        if (ids.isEmpty() && paths.isEmpty()) return
+        val idSet = ids.toSet()
+        val pathSet = paths.toSet()
+        repository.markMovedOrDeleted(idSet, pathSet)
+        idSet.forEach { ThumbnailCache.remove(it) }
+        _uiState.update { state ->
+            state.copy(
+                images = state.images.filterNot { it.id in idSet || it.path in pathSet }
+            )
+        }
+    }
+
+    fun rescanMedia(onComplete: (Int) -> Unit = {}) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(loading = true) }
+            val count = repository.rescanStorage()
+            refresh(showLoading = false)
+            onComplete(count)
+        }
+    }
+
     fun refresh(showLoading: Boolean = true) {
         viewModelScope.launch {
             if (showLoading) {
                 ThumbnailCache.clear()
+                repository.clearVerifiedPathsCache()
                 runCatching {
                     coil3.SingletonImageLoader.get(getApplication<Application>()).memoryCache?.clear()
                 }
