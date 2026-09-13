@@ -1,0 +1,8 @@
+• Photo Editor Redesign: New bottom navigation (Transform, Adjust, Markup, Privacy) with fixed viewport, color brush, and draggable text overlays
+• libavif Integration: Added libavif decoder fallback to render AVIF images failing in Android's native decoder (including yuv422p)
+• Vault Folder Structure: Preserves original album organization inside the vault and restores media to original folders on unlock
+• Move Album to Vault: Added long-press context option to move complete albums into the encrypted vault
+• Directory Browser: Added filesystem navigation in the Library tab with toggleable card and list views
+• Viewer Gestures & Actions: Added swipe down to dismiss, auto-advance on delete, file renaming, and set as wallpaper
+• Video Player: Added video loop repeat toggle and configurable double-tap action (play/pause or zoom)
+• UI & Performance Polish: Instant optimistic deletion, SD card indexing, clean album covers, and Memories multi-selection
