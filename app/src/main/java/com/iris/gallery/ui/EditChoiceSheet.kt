@@ -1,5 +1,5 @@
 package com.iris.gallery.ui
-
+import android.widget.Toast
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.background
@@ -137,6 +137,19 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
         }
+
+        Toast.makeText(
+    context,
+    sendMatches
+        .filter {
+            it.activityInfo.packageName ==
+                "com.google.android.apps.photos"
+        }
+        .joinToString("\n") {
+            "${it.loadLabel(pm)}\n${it.activityInfo.name}"
+        },
+    Toast.LENGTH_LONG
+).show()
     } else {
         emptyList()
     }
