@@ -91,6 +91,24 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
     val cameraMatches = runCatching { pm.queryIntentActivities(cameraEditIntent, 0) }.getOrDefault(emptyList())
         .filter { it.activityInfo.packageName != context.packageName }
 
+            Toast.makeText(
+    context,
+    "SEND gefunden: ${editMatches.size}",
+    Toast.LENGTH_LONG
+).show()
+
+                        Toast.makeText(
+    context,
+    "SEND gefunden: ${genericEditMatches.size}",
+    Toast.LENGTH_LONG
+).show()
+
+                                    Toast.makeText(
+    context,
+    "SEND gefunden: ${cameraMatches.size}",
+    Toast.LENGTH_LONG
+).show()
+
     // Known generic sharing handlers that should never be shown in an editor chooser
     val shareBlacklist = setOf(
         "com.google.android.googlequicksearchbox", // Google Image Search / Lens
