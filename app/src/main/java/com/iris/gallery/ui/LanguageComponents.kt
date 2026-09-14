@@ -55,6 +55,7 @@ import com.iris.gallery.R
 import com.iris.gallery.data.AppLanguage
 import com.iris.gallery.data.SUPPORTED_LANGUAGES
 import com.iris.gallery.data.detectBestLanguage
+import com.iris.gallery.data.getSystemDefaultLocale
 
 /**
  * Applies the selected language code across the app using modern Android LocaleManager / AppCompatDelegate.
@@ -270,14 +271,14 @@ private fun MaterialLanguageRow(
                     fontSize = 22.sp
                 )
                 val isSystem = language.code.isEmpty()
-                val systemLocale = remember { java.util.Locale.getDefault() }
+                val systemLocale = remember { getSystemDefaultLocale() }
                 val titleText = if (isSystem) {
                     stringResource(R.string.settings_language_system_default)
                 } else {
                     language.nativeName
                 }
                 val subtitleText = if (isSystem) {
-                    systemLocale.displayName.replaceFirstChar { it.uppercase() }
+                    systemLocale.getDisplayName(systemLocale).replaceFirstChar { it.uppercase() }
                 } else {
                     language.displayName
                 }

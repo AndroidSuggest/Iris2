@@ -99,6 +99,8 @@ fun FolderBrowserScreen(
     padding: PaddingValues = PaddingValues(0.dp),
     cornerStyle: CornerStyle = CornerStyle.ROUNDED,
     gridSpacing: GridSpacing = GridSpacing.STANDARD,
+    timelineDateFormat: com.iris.gallery.data.TimelineDateFormat = com.iris.gallery.data.TimelineDateFormat.SYSTEM_DEFAULT,
+    customTimelineDateFormat: String = "d. MMMM yyyy",
     onOpenMedia: (MediaImage, List<MediaImage>) -> Unit,
     onBack: () -> Unit,
 ) {
@@ -273,7 +275,21 @@ fun FolderBrowserScreen(
                     }
                 }
             } else if (isListView) {
-                val dateFormat = remember { SimpleDateFormat("MMM d, yyyy", Locale.getDefault()) }
+                val currentLocale = rememberAppLocale()
+                val formatItemDate: (Long) -> String = remember(timelineDateFormat, customTimelineDateFormat, currentLocale) {
+                    { dateTakenMillis ->
+                        val localDate = java.time.Instant.ofEpochMilli(dateTakenMillis).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+                        val formatter = getTimelineFormatter(
+                            format = timelineDateFormat,
+                            isSameYear = false,
+                            showDayOfWeek = false,
+                            locale = currentLocale,
+                            customPattern = customTimelineDateFormat,
+                            smartYearHiding = false
+                        )
+                        localDate.format(formatter)
+                    }
+                }
                 LazyColumn(
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -415,7 +431,7 @@ fun FolderBrowserScreen(
                                                 )
                                             }
                                             Text(
-                                                text = dateFormat.format(Date(image.dateTaken)),
+                                                text = formatItemDate(image.dateTaken),
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -441,7 +457,7 @@ fun FolderBrowserScreen(
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(128.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(gridSpacing.dp.dp),
                     verticalArrangement = Arrangement.spacedBy(gridSpacing.dp.dp),
                     modifier = Modifier.fillMaxSize()

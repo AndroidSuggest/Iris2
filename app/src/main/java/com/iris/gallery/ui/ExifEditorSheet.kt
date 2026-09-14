@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Comment
 import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.LocationOff
 import androidx.compose.material.icons.outlined.LocationOn
@@ -84,18 +85,17 @@ fun ExifEditorSheet(
     onSave: (ExifEditRequest) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
+    val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()) }
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var showStripDialog by remember { mutableStateOf(false) }
 
-    // File & MediaStore State
-    var fileName by remember(image.id) { mutableStateOf(image.name) }
+    // Media & EXIF State
     val initialTitle = remember(image.id, image.title, image.name, exif) {
         val t = exif?.title?.takeIf { it.isNotBlank() } ?: image.title
         if (t.isBlank() || t == image.name || t == image.name.substringBeforeLast('.')) "" else t
     }
-    var mediaTitle by remember(image.id, exif) { mutableStateOf(initialTitle) }
+    var mediaTitle by remember(image.id, exif, initialTitle) { mutableStateOf(initialTitle) }
     var dateTakenStr by remember(image.id) { mutableStateOf(dateFormat.format(Date(image.dateTaken))) }
     var orientation by remember(image.id) { mutableIntStateOf((image.orientation % 360 + 360) % 360) }
 
@@ -130,7 +130,6 @@ fun ExifEditorSheet(
     var stripAllExif by remember { mutableStateOf(false) }
 
     fun revertAll() {
-        fileName = image.name
         val t = exif?.title?.takeIf { it.isNotBlank() } ?: image.title
         mediaTitle = if (t.isBlank() || t == image.name || t == image.name.substringBeforeLast('.')) "" else t
         dateTakenStr = dateFormat.format(Date(image.dateTaken))
@@ -183,7 +182,7 @@ fun ExifEditorSheet(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        fileName.ifBlank { image.name },
+                        image.name,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -254,10 +253,9 @@ fun ExifEditorSheet(
 
             // Tabs Row
             val tabs = listOf(
-                Pair(stringResource(R.string.exif_tab_notes), Icons.Outlined.Comment),
+                Pair(stringResource(R.string.exif_tab_description), Icons.Outlined.Description),
+                Pair(stringResource(R.string.exif_tab_origin), Icons.Outlined.LocationOn),
                 Pair(stringResource(R.string.exif_tab_camera), Icons.Outlined.CameraAlt),
-                Pair(stringResource(R.string.exif_tab_location), Icons.Outlined.LocationOn),
-                Pair(stringResource(R.string.exif_tab_file), Icons.Outlined.Folder),
             )
 
             // Material You Tab Selector (Pill Filter Chips)
@@ -317,309 +315,277 @@ fun ExifEditorSheet(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 when (selectedTab) {
-                0 -> {
-                    // Notes & Information
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(
-                            value = mediaTitle,
-                            onValueChange = {
-                                mediaTitle = it
-                                val ext = image.name.substringAfterLast('.', "jpg")
-                                fileName = if (it.isNotBlank()) "$it.$ext" else image.name
-                            },
-                            label = { Text(stringResource(R.string.details_edit_title)) },
-                            placeholder = { Text(stringResource(R.string.details_title_hint)) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                        )
-
-                        OutlinedTextField(
-                            value = userComment,
-                            onValueChange = { userComment = it },
-                            label = { Text(stringResource(R.string.exif_user_comment_label)) },
-                            placeholder = { Text(stringResource(R.string.exif_user_comment_hint)) },
-                            leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Comment, null) },
-                            modifier = Modifier.fillMaxWidth(),
-                            minLines = 1,
-                            maxLines = 6,
-                            shape = RoundedCornerShape(12.dp),
-                        )
-
-                        OutlinedTextField(
-                            value = imageDescription,
-                            onValueChange = { imageDescription = it },
-                            label = { Text(stringResource(R.string.exif_image_desc_label)) },
-                            placeholder = { Text(stringResource(R.string.exif_image_desc_hint)) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                        )
-
-                        OutlinedTextField(
-                            value = artist,
-                            onValueChange = { artist = it },
-                            label = { Text(stringResource(R.string.exif_artist_label)) },
-                            placeholder = { Text(stringResource(R.string.exif_artist_hint)) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                        )
-
-                        OutlinedTextField(
-                            value = copyright,
-                            onValueChange = { copyright = it },
-                            label = { Text(stringResource(R.string.exif_copyright_label)) },
-                            placeholder = { Text(stringResource(R.string.exif_copyright_hint)) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                        )
-
-                        OutlinedTextField(
-                            value = software,
-                            onValueChange = { software = it },
-                            label = { Text(stringResource(R.string.exif_software_label)) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                        )
-                    }
-                }
-                1 -> {
-                    // Camera & Lens
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    0 -> {
+                        // Description
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             OutlinedTextField(
-                                value = cameraMake,
-                                onValueChange = { cameraMake = it },
-                                label = { Text(stringResource(R.string.exif_camera_make_label)) },
-                                placeholder = { Text(stringResource(R.string.exif_camera_make_hint)) },
-                                modifier = Modifier.weight(1f),
+                                value = mediaTitle,
+                                onValueChange = { mediaTitle = it },
+                                label = { Text(stringResource(R.string.details_edit_title)) },
+                                placeholder = { Text(stringResource(R.string.details_title_hint)) },
+                                modifier = Modifier.fillMaxWidth(),
                                 singleLine = true,
                                 shape = RoundedCornerShape(12.dp),
                             )
-                            OutlinedTextField(
-                                value = cameraModel,
-                                onValueChange = { cameraModel = it },
-                                label = { Text(stringResource(R.string.exif_camera_model_label)) },
-                                placeholder = { Text(stringResource(R.string.exif_camera_model_hint)) },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                            )
-                        }
 
-                        OutlinedTextField(
-                            value = lensModel,
-                            onValueChange = { lensModel = it },
-                            label = { Text(stringResource(R.string.exif_lens_model_label)) },
-                            placeholder = { Text(stringResource(R.string.exif_lens_model_hint)) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                        )
+                            OutlinedTextField(
+                                value = imageDescription,
+                                onValueChange = { imageDescription = it },
+                                label = { Text(stringResource(R.string.exif_image_desc_label)) },
+                                placeholder = { Text(stringResource(R.string.exif_image_desc_hint)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                            )
 
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedTextField(
-                                value = isoStr,
-                                onValueChange = { isoStr = it.filter { c -> c.isDigit() } },
-                                label = { Text(stringResource(R.string.exif_iso_label)) },
-                                placeholder = { Text("100") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
+                                value = userComment,
+                                onValueChange = { userComment = it },
+                                label = { Text(stringResource(R.string.exif_user_comment_label)) },
+                                placeholder = { Text(stringResource(R.string.exif_user_comment_hint)) },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Comment, null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 1,
+                                maxLines = 6,
                                 shape = RoundedCornerShape(12.dp),
                             )
-                            OutlinedTextField(
-                                value = apertureStr,
-                                onValueChange = { apertureStr = it.filter { c -> c.isDigit() || c == '.' } },
-                                label = { Text(stringResource(R.string.exif_aperture_label)) },
-                                placeholder = { Text("1.8") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                            )
-                        }
-
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = shutterSpeedStr,
-                                onValueChange = { shutterSpeedStr = it },
-                                label = { Text(stringResource(R.string.exif_shutter_label)) },
-                                placeholder = { Text("1/250") },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                            )
-                            OutlinedTextField(
-                                value = focalLengthStr,
-                                onValueChange = { focalLengthStr = it.filter { c -> c.isDigit() || c == '.' } },
-                                label = { Text(stringResource(R.string.exif_focal_length_label)) },
-                                placeholder = { Text("50.0") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                                shape = RoundedCornerShape(12.dp),
-                            )
-                        }
-
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                stringResource(R.string.details_white_balance),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilterChip(
-                                    selected = whiteBalance == 0,
-                                    onClick = { whiteBalance = if (whiteBalance == 0) null else 0 },
-                                    label = { Text(stringResource(R.string.details_white_balance_auto)) },
-                                )
-                                FilterChip(
-                                    selected = whiteBalance == 1,
-                                    onClick = { whiteBalance = if (whiteBalance == 1) null else 1 },
-                                    label = { Text(stringResource(R.string.details_white_balance_manual)) },
-                                )
-                            }
                         }
                     }
-                }
-                2 -> {
-                    // Location (GPS)
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                            shape = RoundedCornerShape(16.dp),
-                        ) {
-                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Icon(Icons.Outlined.LocationOn, null, tint = MaterialTheme.colorScheme.primary)
-                                    Text(stringResource(R.string.details_location), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                }
-                                Text(
-                                    stringResource(R.string.exif_remove_gps_desc),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-
-                        OutlinedTextField(
-                            value = latitudeStr,
-                            onValueChange = {
-                                latitudeStr = it.filter { c -> c.isDigit() || c == '.' || c == '-' }
-                                if (latitudeStr.isNotBlank()) removeGps = false
-                            },
-                            label = { Text(stringResource(R.string.exif_latitude_label)) },
-                            placeholder = { Text("37.774929") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                        )
-
-                        OutlinedTextField(
-                            value = longitudeStr,
-                            onValueChange = {
-                                longitudeStr = it.filter { c -> c.isDigit() || c == '.' || c == '-' }
-                                if (longitudeStr.isNotBlank()) removeGps = false
-                            },
-                            label = { Text(stringResource(R.string.exif_longitude_label)) },
-                            placeholder = { Text("-122.419416") },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                        )
-
-                        if (latitudeStr.isNotBlank() || longitudeStr.isNotBlank()) {
-                            OutlinedButton(
-                                onClick = {
-                                    latitudeStr = ""
-                                    longitudeStr = ""
-                                    removeGps = true
+                    1 -> {
+                        // Origin: Date, Orientation, Location, Author & Copyright
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedTextField(
+                                value = dateTakenStr,
+                                onValueChange = { dateTakenStr = it },
+                                label = { Text(stringResource(R.string.details_edit_captured_hint)) },
+                                trailingIcon = {
+                                    TextButton(onClick = { dateTakenStr = dateFormat.format(Date()) }) {
+                                        Text(stringResource(R.string.exif_set_current_time), fontSize = 11.sp)
+                                    }
                                 },
                                 modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Icon(Icons.Outlined.LocationOff, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(stringResource(R.string.exif_remove_gps))
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                            )
+
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(
+                                    stringResource(R.string.details_orientation),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf(0, 90, 180, 270).forEach { deg ->
+                                        FilterChip(
+                                            selected = orientation == deg,
+                                            onClick = { orientation = deg },
+                                            label = { Text("$deg°") },
+                                        )
+                                    }
+                                }
                             }
+
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                shape = RoundedCornerShape(16.dp),
+                            ) {
+                                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Outlined.LocationOn, null, tint = MaterialTheme.colorScheme.primary)
+                                        Text(stringResource(R.string.details_location), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                    }
+                                    Text(
+                                        stringResource(R.string.exif_remove_gps_desc),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = latitudeStr,
+                                    onValueChange = {
+                                        latitudeStr = it.filter { c -> c.isDigit() || c == '.' || c == '-' }
+                                        if (latitudeStr.isNotBlank()) removeGps = false
+                                    },
+                                    label = { Text(stringResource(R.string.exif_latitude_label)) },
+                                    placeholder = { Text("37.774929") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                )
+
+                                OutlinedTextField(
+                                    value = longitudeStr,
+                                    onValueChange = {
+                                        longitudeStr = it.filter { c -> c.isDigit() || c == '.' || c == '-' }
+                                        if (longitudeStr.isNotBlank()) removeGps = false
+                                    },
+                                    label = { Text(stringResource(R.string.exif_longitude_label)) },
+                                    placeholder = { Text("-122.419416") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                )
+                            }
+
+                            if (latitudeStr.isNotBlank() || longitudeStr.isNotBlank()) {
+                                OutlinedButton(
+                                    onClick = {
+                                        latitudeStr = ""
+                                        longitudeStr = ""
+                                        removeGps = true
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Icon(Icons.Outlined.LocationOff, null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(stringResource(R.string.exif_remove_gps))
+                                }
+                            }
+
+                            OutlinedTextField(
+                                value = artist,
+                                onValueChange = { artist = it },
+                                label = { Text(stringResource(R.string.exif_artist_label)) },
+                                placeholder = { Text(stringResource(R.string.exif_artist_hint)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                            )
+
+                            OutlinedTextField(
+                                value = copyright,
+                                onValueChange = { copyright = it },
+                                label = { Text(stringResource(R.string.exif_copyright_label)) },
+                                placeholder = { Text(stringResource(R.string.exif_copyright_hint)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                            )
+
+                            OutlinedTextField(
+                                value = software,
+                                onValueChange = { software = it },
+                                label = { Text(stringResource(R.string.exif_software_label)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
+                            )
                         }
                     }
-                }
-                3 -> {
-                    // File & Date
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(
-                            value = fileName,
-                            onValueChange = {
-                                fileName = it
-                                mediaTitle = it.substringBeforeLast('.')
-                            },
-                            label = { Text(stringResource(R.string.details_edit_filename)) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                        )
+                    2 -> {
+                        // Camera & Lens
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = cameraMake,
+                                    onValueChange = { cameraMake = it },
+                                    label = { Text(stringResource(R.string.exif_camera_make_label)) },
+                                    placeholder = { Text(stringResource(R.string.exif_camera_make_hint)) },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                )
+                                OutlinedTextField(
+                                    value = cameraModel,
+                                    onValueChange = { cameraModel = it },
+                                    label = { Text(stringResource(R.string.exif_camera_model_label)) },
+                                    placeholder = { Text(stringResource(R.string.exif_camera_model_hint)) },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                )
+                            }
 
-                        OutlinedTextField(
-                            value = mediaTitle,
-                            onValueChange = {
-                                mediaTitle = it
-                                val ext = image.name.substringAfterLast('.', "jpg")
-                                fileName = if (it.isNotBlank()) "$it.$ext" else image.name
-                            },
-                            label = { Text(stringResource(R.string.details_edit_title)) },
-                            placeholder = { Text(stringResource(R.string.details_title_hint)) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                        )
-
-                        OutlinedTextField(
-                            value = dateTakenStr,
-                            onValueChange = { dateTakenStr = it },
-                            label = { Text(stringResource(R.string.details_edit_captured_hint)) },
-                            trailingIcon = {
-                                TextButton(onClick = { dateTakenStr = dateFormat.format(Date()) }) {
-                                    Text(stringResource(R.string.exif_set_current_time), fontSize = 11.sp)
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                        )
-
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                stringResource(R.string.details_orientation),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            OutlinedTextField(
+                                value = lensModel,
+                                onValueChange = { lensModel = it },
+                                label = { Text(stringResource(R.string.exif_lens_model_label)) },
+                                placeholder = { Text(stringResource(R.string.exif_lens_model_hint)) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp),
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf(0, 90, 180, 270).forEach { deg ->
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = isoStr,
+                                    onValueChange = { isoStr = it.filter { c -> c.isDigit() } },
+                                    label = { Text(stringResource(R.string.exif_iso_label)) },
+                                    placeholder = { Text("100") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                )
+                                OutlinedTextField(
+                                    value = apertureStr,
+                                    onValueChange = { apertureStr = it.filter { c -> c.isDigit() || c == '.' } },
+                                    label = { Text(stringResource(R.string.exif_aperture_label)) },
+                                    placeholder = { Text("1.8") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                )
+                            }
+
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = shutterSpeedStr,
+                                    onValueChange = { shutterSpeedStr = it },
+                                    label = { Text(stringResource(R.string.exif_shutter_label)) },
+                                    placeholder = { Text("1/250") },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                )
+                                OutlinedTextField(
+                                    value = focalLengthStr,
+                                    onValueChange = { focalLengthStr = it.filter { c -> c.isDigit() || c == '.' } },
+                                    label = { Text(stringResource(R.string.exif_focal_length_label)) },
+                                    placeholder = { Text("50.0") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                )
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    stringResource(R.string.details_white_balance),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     FilterChip(
-                                        selected = orientation == deg,
-                                        onClick = { orientation = deg },
-                                        label = { Text("$deg°") },
+                                        selected = whiteBalance == 0,
+                                        onClick = { whiteBalance = if (whiteBalance == 0) null else 0 },
+                                        label = { Text(stringResource(R.string.details_white_balance_auto)) },
+                                    )
+                                    FilterChip(
+                                        selected = whiteBalance == 1,
+                                        onClick = { whiteBalance = if (whiteBalance == 1) null else 1 },
+                                        label = { Text(stringResource(R.string.details_white_balance_manual)) },
                                     )
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            Text(
-                stringResource(R.string.details_edit_permission_note),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+                Text(
+                    stringResource(R.string.details_edit_permission_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             // Fixed Sticky Action Buttons Row
             Row(
@@ -652,23 +618,11 @@ fun ExifEditorSheet(
                         }
 
                         val customTitle = mediaTitle.trim()
-                        val ext = (fileName.substringAfterLast('.', "").takeIf { it.isNotBlank() } ?: image.name.substringAfterLast('.', "jpg")).trim()
-                        val effectiveDisplayName = if (fileName.trim().isNotBlank() && fileName.trim() != image.name) {
-                            fileName.trim()
-                        } else if (customTitle.isNotBlank()) {
-                            if (customTitle.contains('.')) customTitle else "$customTitle.$ext"
-                        } else {
-                            image.name
-                        }
-                        val effectiveTitle = if (customTitle.isNotBlank()) {
-                            customTitle.substringBeforeLast('.')
-                        } else {
-                            effectiveDisplayName.substringBeforeLast('.')
-                        }
+                        val effectiveTitle = if (customTitle.isNotBlank()) customTitle else ""
                         val effectiveDesc = imageDescription.trim().ifBlank { null }
 
                         val request = ExifEditRequest(
-                            displayName = effectiveDisplayName,
+                            displayName = image.name,
                             title = effectiveTitle,
                             dateTakenMillis = parsedTime,
                             orientation = orientation,

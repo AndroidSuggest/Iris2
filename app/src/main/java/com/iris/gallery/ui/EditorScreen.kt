@@ -2,6 +2,7 @@ package com.iris.gallery.ui
 
 import android.content.ContentValues
 import android.content.Context
+import android.net.Uri
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -105,6 +106,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.aomedia.avif.android.AvifDecoder
+import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import java.nio.ByteBuffer
 
@@ -1355,6 +1357,7 @@ private suspend fun saveEditedCopy(
     }
     val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: error("Could not create copy")
     context.contentResolver.openOutputStream(uri)?.use { resized.compress(Bitmap.CompressFormat.JPEG, 94, it) } ?: error("Could not write copy")
+    copyExifMetadata(context, image, uri)
     if (Build.VERSION.SDK_INT >= 29) {
         val updateValues = ContentValues().apply {
             put(MediaStore.Images.Media.IS_PENDING, 0)
@@ -1368,6 +1371,66 @@ private suspend fun saveEditedCopy(
     if (cropped !== adjusted) cropped.recycle()
     if (adjusted !== resized) adjusted.recycle()
     resized.recycle()
+}
+
+private fun copyExifMetadata(context: Context, sourceImage: MediaImage, destUri: Uri) {
+    runCatching {
+        val srcExif = if (sourceImage.path.isNotBlank() && File(sourceImage.path).exists()) {
+            ExifInterface(sourceImage.path)
+        } else {
+            context.contentResolver.openInputStream(sourceImage.uri)?.use {
+                ExifInterface(it)
+            }
+        } ?: return
+
+        context.contentResolver.openFileDescriptor(destUri, "rw")?.use { pfd ->
+            val dstExif = ExifInterface(pfd.fileDescriptor)
+            val tagsToCopy = listOf(
+                ExifInterface.TAG_MAKE,
+                ExifInterface.TAG_MODEL,
+                ExifInterface.TAG_LENS_MAKE,
+                ExifInterface.TAG_LENS_MODEL,
+                ExifInterface.TAG_F_NUMBER,
+                ExifInterface.TAG_APERTURE_VALUE,
+                ExifInterface.TAG_EXPOSURE_TIME,
+                ExifInterface.TAG_SHUTTER_SPEED_VALUE,
+                ExifInterface.TAG_ISO_SPEED_RATINGS,
+                ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY,
+                ExifInterface.TAG_FOCAL_LENGTH,
+                ExifInterface.TAG_FOCAL_LENGTH_IN_35MM_FILM,
+                ExifInterface.TAG_FLASH,
+                ExifInterface.TAG_WHITE_BALANCE,
+                ExifInterface.TAG_SCENE_CAPTURE_TYPE,
+                ExifInterface.TAG_DATETIME_ORIGINAL,
+                ExifInterface.TAG_DATETIME_DIGITIZED,
+                ExifInterface.TAG_OFFSET_TIME_ORIGINAL,
+                ExifInterface.TAG_OFFSET_TIME_DIGITIZED,
+                ExifInterface.TAG_IMAGE_DESCRIPTION,
+                ExifInterface.TAG_USER_COMMENT,
+                ExifInterface.TAG_ARTIST,
+                ExifInterface.TAG_COPYRIGHT,
+                ExifInterface.TAG_GPS_LATITUDE,
+                ExifInterface.TAG_GPS_LATITUDE_REF,
+                ExifInterface.TAG_GPS_LONGITUDE,
+                ExifInterface.TAG_GPS_LONGITUDE_REF,
+                ExifInterface.TAG_GPS_ALTITUDE,
+                ExifInterface.TAG_GPS_ALTITUDE_REF,
+                ExifInterface.TAG_GPS_TIMESTAMP,
+                ExifInterface.TAG_GPS_DATESTAMP,
+                ExifInterface.TAG_GPS_PROCESSING_METHOD,
+                ExifInterface.TAG_IMAGE_UNIQUE_ID,
+            )
+            for (tag in tagsToCopy) {
+                val value = srcExif.getAttribute(tag)
+                if (value != null) {
+                    dstExif.setAttribute(tag, value)
+                }
+            }
+            dstExif.setAttribute(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL.toString())
+            dstExif.setAttribute(ExifInterface.TAG_SOFTWARE, "Iris Gallery")
+            dstExif.saveAttributes()
+        }
+    }
 }
 
 private fun renderBrushes(target: Bitmap, strokes: List<BrushStroke>, crop: RectF) {

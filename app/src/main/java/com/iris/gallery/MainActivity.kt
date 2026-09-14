@@ -58,6 +58,9 @@ import androidx.compose.foundation.gestures.calculateRotation
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
@@ -71,6 +74,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
@@ -454,9 +458,12 @@ private fun GalleryApp(
     }
     val notificationLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     var pendingPermanentDeleteMedia by remember { mutableStateOf<List<MediaImage>?>(null) }
+    var pendingPermanentDeleteCallback by remember { mutableStateOf<(() -> Unit)?>(null) }
     val deleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         val pending = pendingPermanentDeleteMedia
+        val cb = pendingPermanentDeleteCallback
         pendingPermanentDeleteMedia = null
+        pendingPermanentDeleteCallback = null
         if (result.resultCode == Activity.RESULT_OK) {
             if (pending != null) {
                 val delIds = pending.map { it.id }.toSet()
@@ -464,18 +471,36 @@ private fun GalleryApp(
                 viewModel.markMediaDeleted(delIds, delPaths)
             }
             viewModel.refresh(showLoading = false)
+            cb?.invoke()
         }
     }
-    var pendingMetadata by remember { mutableStateOf<Triple<MediaImage, ContentValues, ExifEditRequest>?>(null) }
+    var pendingRename by remember { mutableStateOf<Triple<MediaImage, String, (MediaImage?) -> Unit>?>(null) }
+    val renameLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        val pending = pendingRename
+        pendingRename = null
+        if (result.resultCode == Activity.RESULT_OK && pending != null) {
+            val (media, newName, callback) = pending
+            viewModel.renameMedia(media, newName) { updated ->
+                callback(updated)
+            }
+        } else {
+            pending?.third?.invoke(null)
+        }
+    }
+    var pendingMetadata by remember { mutableStateOf<Triple<MediaImage, ContentValues, Pair<ExifEditRequest, ((MediaImage?) -> Unit)?>>?>(null) }
     val metadataWriteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
         val pending = pendingMetadata
         pendingMetadata = null
         if (it.resultCode == Activity.RESULT_OK && pending != null) {
-            val (media, values, request) = pending
+            val (media, values, reqAndCb) = pending
+            val (request, callback) = reqAndCb
             saveExifToMedia(context, canonicalMediaUri(media), media.path, request)
             context.contentResolver.update(canonicalMediaUri(media), values, null, null)
-            viewModel.refresh()
+            val updated = viewModel.updateMediaMetadata(media, request)
+            callback?.invoke(updated)
             Toast.makeText(context, R.string.toast_metadata_updated, Toast.LENGTH_SHORT).show()
+        } else {
+            pending?.third?.second?.invoke(null)
         }
     }
     var lockedAuthorized by remember { mutableStateOf(false) }
@@ -530,9 +555,12 @@ private fun GalleryApp(
     }
 
     var pendingTrashMove by remember { mutableStateOf<com.iris.gallery.data.TrashMoveResult?>(null) }
+    var pendingTrashCallback by remember { mutableStateOf<(() -> Unit)?>(null) }
     val trashDeleteLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
         val pending = pendingTrashMove
+        val cb = pendingTrashCallback
         pendingTrashMove = null
+        pendingTrashCallback = null
         if (result.resultCode == Activity.RESULT_OK) {
             if (pending != null) {
                 val delIds = pending.originalMedia.map { it.id }.toSet()
@@ -542,10 +570,12 @@ private fun GalleryApp(
             viewModel.refresh(showLoading = false)
             val count = pending?.trashedMedia?.size ?: 0
             Toast.makeText(context, context.getString(R.string.toast_items_moved_to_trash, count), Toast.LENGTH_SHORT).show()
+            cb?.invoke()
         } else {
             pending?.let { moveResult ->
                 coroutineScope.launch {
                     viewModel.rollbackTrashMove(moveResult.trashedMedia)
+                    viewModel.refresh(showLoading = false)
                 }
             }
         }
@@ -833,7 +863,7 @@ private fun GalleryApp(
                             }
                         },
                         onPick = onPick,
-                        onTrash = { media ->
+                        onTrash = { media, onConfirmed ->
                             if (media.isNotEmpty()) {
                                 coroutineScope.launch {
                                     val moveResult = viewModel.moveToTrash(media)
@@ -843,10 +873,12 @@ private fun GalleryApp(
                                             val delPaths = moveResult.originalMedia.map { it.path }.toSet()
                                             viewModel.markMediaDeleted(delIds, delPaths)
                                             viewModel.refresh(showLoading = false)
+                                            onConfirmed?.invoke()
                                             Toast.makeText(context, context.getString(R.string.toast_items_moved_to_trash, moveResult.trashedMedia.size), Toast.LENGTH_SHORT).show()
                                         } else if (Build.VERSION.SDK_INT >= 30) {
                                             runCatching {
                                                 pendingTrashMove = moveResult
+                                                pendingTrashCallback = onConfirmed
                                                 val request = MediaStore.createDeleteRequest(
                                                     context.contentResolver,
                                                     moveResult.originalMedia.map { canonicalMediaUri(it) }
@@ -854,6 +886,7 @@ private fun GalleryApp(
                                                 trashDeleteLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
                                             }.onFailure {
                                                 pendingTrashMove = null
+                                                pendingTrashCallback = null
                                                 viewModel.rollbackTrashMove(moveResult.trashedMedia)
                                                 Toast.makeText(context, context.getString(R.string.toast_could_not_request_removal), Toast.LENGTH_SHORT).show()
                                             }
@@ -869,6 +902,7 @@ private fun GalleryApp(
                                                 val delPaths = moveResult.originalMedia.map { it.path }.toSet()
                                                 viewModel.markMediaDeleted(delIds, delPaths)
                                                 viewModel.refresh(showLoading = false)
+                                                onConfirmed?.invoke()
                                                 Toast.makeText(context, context.getString(R.string.toast_items_moved_to_trash, moveResult.trashedMedia.size), Toast.LENGTH_SHORT).show()
                                             } else {
                                                 viewModel.rollbackTrashMove(moveResult.trashedMedia)
@@ -886,7 +920,7 @@ private fun GalleryApp(
                                 }
                             }
                         },
-                        onDeletePermanently = { media ->
+                        onDeletePermanently = { media, onConfirmed ->
                             if (media.isNotEmpty()) {
                                 val internalItems = media.filter { it.id < 0 || it.path.startsWith(context.filesDir.absolutePath) }
                                 val externalItems = media.filter { it.id > 0 && !it.path.startsWith(context.filesDir.absolutePath) }
@@ -896,6 +930,9 @@ private fun GalleryApp(
                                         val delPaths = internalItems.map { it.path }.toSet()
                                         viewModel.markMediaDeleted(delIds, delPaths)
                                         viewModel.deletePermanently(internalItems)
+                                        if (externalItems.isEmpty()) {
+                                            onConfirmed?.invoke()
+                                        }
                                     }
                                     if (externalItems.isNotEmpty()) {
                                         if (Build.VERSION.SDK_INT >= 30 && !Environment.isExternalStorageManager()) {
@@ -905,9 +942,11 @@ private fun GalleryApp(
                                                     externalItems.map { canonicalMediaUri(it) }
                                                 )
                                                 pendingPermanentDeleteMedia = externalItems
+                                                pendingPermanentDeleteCallback = onConfirmed
                                                 deleteLauncher.launch(IntentSenderRequest.Builder(request.intentSender).build())
                                             }.onFailure {
                                                 pendingPermanentDeleteMedia = null
+                                                pendingPermanentDeleteCallback = null
                                                 Toast.makeText(context, context.getString(R.string.toast_could_not_request_removal), Toast.LENGTH_SHORT).show()
                                             }
                                         } else {
@@ -915,13 +954,14 @@ private fun GalleryApp(
                                             val delPaths = externalItems.map { it.path }.toSet()
                                             viewModel.markMediaDeleted(delIds, delPaths)
                                             viewModel.deletePermanently(externalItems)
+                                            onConfirmed?.invoke()
                                         }
                                     }
                                 }
                             }
                         },
                         onRescanMedia = onRescanMedia,
-                        onEditMetadata = { media, request ->
+                        onEditMetadata = { media, request, callback ->
                             val values = ContentValues().apply {
                                 put(MediaStore.MediaColumns.DISPLAY_NAME, request.displayName)
                                 put(MediaStore.MediaColumns.TITLE, request.title)
@@ -932,17 +972,21 @@ private fun GalleryApp(
                                 }
                             }
                             if (Build.VERSION.SDK_INT >= 30) runCatching {
-                                pendingMetadata = Triple(media, values, request)
+                                pendingMetadata = Triple(media, values, Pair(request, callback))
                                 val writeReq = MediaStore.createWriteRequest(context.contentResolver, listOf(canonicalMediaUri(media)))
                                 metadataWriteLauncher.launch(IntentSenderRequest.Builder(writeReq.intentSender).build())
                             }.onFailure {
                                 pendingMetadata = null
+                                callback(null)
                                 Toast.makeText(context, context.getString(R.string.toast_could_not_request_metadata), Toast.LENGTH_LONG).show()
                             } else runCatching {
                                 saveExifToMedia(context, canonicalMediaUri(media), media.path, request)
                                 context.contentResolver.update(canonicalMediaUri(media), values, null, null)
-                                viewModel.refresh()
+                                val updated = viewModel.updateMediaMetadata(media, request)
+                                callback(updated)
                                 Toast.makeText(context, R.string.toast_metadata_updated, Toast.LENGTH_SHORT).show()
+                            }.onFailure {
+                                callback(null)
                             }
                         },
                         duplicateState = duplicateState,
@@ -961,7 +1005,27 @@ private fun GalleryApp(
                         getAlbumDir = viewModel::getAlbumDirectory,
                         createAlbumDir = viewModel::createNewAlbumDirectory,
                         onRefresh = { viewModel.refresh() },
-                        onRenameMedia = viewModel::renameMedia,
+                        onRenameMedia = { media, newName, callback ->
+                            viewModel.renameMedia(media, newName) { updated ->
+                                if (updated != null) {
+                                    callback(updated)
+                                } else if (Build.VERSION.SDK_INT >= 30) {
+                                    runCatching {
+                                        pendingRename = Triple(media, newName, callback)
+                                        val writeReq = MediaStore.createWriteRequest(
+                                            context.contentResolver,
+                                            listOf(canonicalMediaUri(media))
+                                        )
+                                        renameLauncher.launch(IntentSenderRequest.Builder(writeReq.intentSender).build())
+                                    }.onFailure {
+                                        pendingRename = null
+                                        callback(null)
+                                    }
+                                } else {
+                                    callback(null)
+                                }
+                            }
+                        },
                         initialMemories = initialMemories,
                         initialViewUri = initialViewUri,
                         initialEditMode = initialEditMode,
@@ -1138,10 +1202,10 @@ private fun GalleryScaffold(
     onSetAlbumMediaSort: (com.iris.gallery.data.MediaSort) -> Unit = {},
     onRequestUnlock: () -> Unit,
     onPick: ((MediaImage) -> Unit)?,
-    onTrash: (List<MediaImage>) -> Unit,
+    onTrash: (List<MediaImage>, onConfirmed: (() -> Unit)?) -> Unit,
     onRestore: (List<MediaImage>) -> Unit,
-    onDeletePermanently: (List<MediaImage>) -> Unit,
-    onEditMetadata: (MediaImage, ExifEditRequest) -> Unit,
+    onDeletePermanently: (List<MediaImage>, onConfirmed: (() -> Unit)?) -> Unit,
+    onEditMetadata: (MediaImage, ExifEditRequest, (MediaImage?) -> Unit) -> Unit = { _, _, _ -> },
     onMoveToAlbum: (List<MediaImage>, java.io.File, String) -> Unit,
     onCopyToAlbum: (List<MediaImage>, java.io.File, String) -> Unit,
     getAlbumDir: (MediaAlbum) -> java.io.File,
@@ -1354,22 +1418,22 @@ private fun GalleryScaffold(
         }
     }
 
-    val handleTrash: (List<MediaImage>) -> Unit = { items ->
+    fun handleTrash(items: List<MediaImage>, onConfirmed: (() -> Unit)? = null) {
         if (items.isNotEmpty()) {
             trashFeedback = TrashFeedback(TrashFeedbackType.MOVED_TO_TRASH, items.size)
-            onTrash(items)
+            onTrash(items, onConfirmed)
         }
     }
-    val handleRestore: (List<MediaImage>) -> Unit = { items ->
+    fun handleRestore(items: List<MediaImage>) {
         if (items.isNotEmpty()) {
             trashFeedback = TrashFeedback(TrashFeedbackType.RESTORED, items.size)
             onRestore(items)
         }
     }
-    val handleDeletePermanently: (List<MediaImage>) -> Unit = { items ->
+    fun handleDeletePermanently(items: List<MediaImage>, onConfirmed: (() -> Unit)? = null) {
         if (items.isNotEmpty()) {
             trashFeedback = TrashFeedback(TrashFeedbackType.PERMANENTLY_DELETED, items.size)
-            onDeletePermanently(items)
+            onDeletePermanently(items, onConfirmed)
         }
     }
 
@@ -1383,8 +1447,11 @@ private fun GalleryScaffold(
                         OutlinedTextField(
                             value = fileSearchQuery,
                             onValueChange = { fileSearchQuery = it },
-                            modifier = Modifier.fillMaxWidth().height(52.dp),
-                            placeholder = { Text(stringResource(R.string.search_files_placeholder), style = MaterialTheme.typography.bodyMedium) },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)
+                            ),
+                            placeholder = { Text(stringResource(R.string.search_files_placeholder), style = MaterialTheme.typography.bodyLarge) },
                             leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                             trailingIcon = {
                                 if (fileSearchQuery.isNotEmpty()) {
@@ -1616,7 +1683,7 @@ private fun GalleryScaffold(
                                 Text(stringResource(R.string.action_empty_trash), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
                             }
                         }
-                        val canToggleGrid = destination == 0 || destination == 2 || (destination == 1 && selectedAlbum != null) || (destination == 3 && (librarySection == "trash" || librarySection == "locked" || librarySection == "duplicates" || librarySection == "memories" || librarySection == "formats" || librarySection == "editor"))
+                        val canToggleGrid = destination == 0 || destination == 2 || (destination == 1 && selectedAlbum != null) || (destination == 3 && (librarySection == "trash" || librarySection == "locked" || librarySection == "memories" || librarySection == "formats" || librarySection == "editor"))
                         if (canToggleGrid) {
                             IconButton(onClick = {
                                 compactGrid = !compactGrid
@@ -2193,12 +2260,14 @@ private fun GalleryScaffold(
                             onScan = onScanDuplicates,
                             onCancel = onCancelDuplicateScan,
                             onOpen = { group, media -> viewerImages = group.items; selectedId = media.id },
-                            onTrash = handleTrash,
+                            onTrash = { pendingDeleteItems = it },
                         )
                         "folder_view" -> FolderBrowserScreen(
                             padding = padding,
                             cornerStyle = settings.cornerStyle,
                             gridSpacing = settings.gridSpacing,
+                            timelineDateFormat = settings.timelineDateFormat,
+                            customTimelineDateFormat = settings.customTimelineDateFormat,
                             onOpenMedia = { media, folderMediaList ->
                                 viewerImages = folderMediaList
                                 selectedId = media.id
@@ -2436,7 +2505,13 @@ private fun GalleryScaffold(
                 runCatching { context.contentResolver.delete(item.uri, null, null) }
             },
             onRestore = { },
-            onEditMetadata = onEditMetadata,
+            onEditMetadata = { media, request ->
+                onEditMetadata(media, request) { updated ->
+                    if (updated != null) {
+                        externalMedia = updated
+                    }
+                }
+            },
             onEdit = { editorImage = it; externalMedia = null },
             onLock = { },
             onUnlock = { },
@@ -2497,29 +2572,38 @@ private fun GalleryScaffold(
                 }
             },
             onDelete = { media, deletePermanently ->
-                val activeList = viewerImages ?: images
-                val currentIndex = activeList.indexOfFirst { it.id == media.id }
-                val nextImage = if (activeList.size > 1 && currentIndex >= 0) {
-                    if (currentIndex < activeList.size - 1) activeList[currentIndex + 1]
-                    else activeList[currentIndex - 1]
-                } else null
+                val onConfirmedAction = {
+                    val activeList = viewerImages ?: images
+                    val currentIndex = activeList.indexOfFirst { it.id == media.id }
+                    val nextImage = if (activeList.size > 1 && currentIndex >= 0) {
+                        if (currentIndex < activeList.size - 1) activeList[currentIndex + 1]
+                        else activeList[currentIndex - 1]
+                    } else null
 
-                selectedId = nextImage?.id
-                viewerImages = viewerImages?.filterNot { it.id == media.id }
+                    selectedId = nextImage?.id
+                    viewerImages = viewerImages?.filterNot { it.id == media.id }
+                }
 
                 if (isViewingTrash || deletePermanently) {
-                    handleDeletePermanently(listOf(media))
+                    handleDeletePermanently(listOf(media), onConfirmedAction)
                 } else if (isViewingLocked) {
                     trashFeedback = TrashFeedback(TrashFeedbackType.PERMANENTLY_DELETED, 1)
                     onDeleteFromLocked(listOf(media))
+                    onConfirmedAction()
                 } else {
-                    handleTrash(listOf(media))
+                    handleTrash(listOf(media), onConfirmedAction)
                 }
             },
             onRestore = { media ->
                 handleRestore(listOf(media))
             },
-            onEditMetadata = onEditMetadata,
+            onEditMetadata = { media, request ->
+                onEditMetadata(media, request) { updated ->
+                    if (updated != null) {
+                        viewerImages = viewerImages?.map { if (it.id == media.id) updated else it }
+                    }
+                }
+            },
             onEdit = { editorImage = it; selectedId = null },
             onLock = { onLockMedia(listOf(it)); selectedId = null },
             onUnlock = { onUnlockMedia(listOf(it)); selectedId = null },
@@ -4101,14 +4185,31 @@ private fun PhotoViewer(
       }
     }
 
+    val canNavigatePrev = pagerState.currentPage > 0
+    val canNavigateNext = pagerState.currentPage < images.size - 1
     if (showInfo) PhotoDetailsSheet(
         image = current,
         timelineDateFormat = timelineDateFormat,
         customTimelineDateFormat = customTimelineDateFormat,
+        canNavigatePrevious = canNavigatePrev,
+        canNavigateNext = canNavigateNext,
+        onNavigatePrevious = {
+            if (canNavigatePrev) {
+                coroutineScope.launch {
+                    pagerState.animateScrollToPage(pagerState.currentPage - 1)
+                }
+            }
+        },
+        onNavigateNext = {
+            if (canNavigateNext) {
+                coroutineScope.launch {
+                    pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                }
+            }
+        },
         onDismiss = { showInfo = false },
         onSave = { request ->
             onEditMetadata(current, request)
-            showInfo = false
         },
         onRename = onRename,
     )
@@ -4553,12 +4654,17 @@ private fun PhotoDetailsSheet(
     image: MediaImage,
     timelineDateFormat: TimelineDateFormat = TimelineDateFormat.SYSTEM_DEFAULT,
     customTimelineDateFormat: String = "d. MMMM yyyy",
+    canNavigatePrevious: Boolean = false,
+    canNavigateNext: Boolean = false,
+    onNavigatePrevious: () -> Unit = {},
+    onNavigateNext: () -> Unit = {},
     onDismiss: () -> Unit,
     onSave: (ExifEditRequest) -> Unit,
     onRename: (MediaImage, String) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
-    val exif by produceState<ExifMetadata?>(initialValue = null, image.id, image.uri) {
+    var exifRevision by remember { mutableIntStateOf(0) }
+    val exif by produceState<ExifMetadata?>(initialValue = null, image.id, image.uri, exifRevision) {
         value = withContext(Dispatchers.IO) {
             loadExifMetadata(context, image.uri)
         }
@@ -4566,6 +4672,10 @@ private fun PhotoDetailsSheet(
     val currentExif = exif
     var editing by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    val draggableState = rememberDraggableState { delta ->
+        dragOffset += delta
+    }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
     ) {
@@ -4573,19 +4683,66 @@ private fun PhotoDetailsSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                .draggable(
+                    state = draggableState,
+                    orientation = Orientation.Horizontal,
+                    onDragStopped = { velocity ->
+                        if ((dragOffset > 80f || velocity > 300f) && canNavigatePrevious) {
+                            onNavigatePrevious()
+                        } else if ((dragOffset < -80f || velocity < -300f) && canNavigateNext) {
+                            onNavigateNext()
+                        }
+                        dragOffset = 0f
+                    }
+                )
                 .verticalScroll(rememberScrollState())
                 .padding(start = 20.dp, end = 20.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            val sheetTitle = image.title.takeIf { it.isNotBlank() && it != image.name && it != image.name.substringBeforeLast('.') }
-                ?: image.name.ifBlank { stringResource(R.string.details_photo_details) }
-            Text(
-                sheetTitle,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                val sheetTitle = image.title.takeIf { it.isNotBlank() && it != image.name && it != image.name.substringBeforeLast('.') }
+                    ?: image.name.ifBlank { stringResource(R.string.details_photo_details) }
+                Text(
+                    sheetTitle,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (canNavigatePrevious || canNavigateNext) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = onNavigatePrevious,
+                            enabled = canNavigatePrevious,
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = stringResource(R.string.action_previous),
+                                tint = if (canNavigatePrevious) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                        IconButton(
+                            onClick = onNavigateNext,
+                            enabled = canNavigateNext,
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = stringResource(R.string.action_next),
+                                tint = if (canNavigateNext) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                                modifier = Modifier.size(20.dp).graphicsLayer(scaleX = -1f),
+                            )
+                        }
+                    }
+                }
+            }
 
             val currentLocale = rememberAppLocale()
             val resolvedTitle = (currentExif?.title?.takeIf { it.isNotBlank() } ?: image.title).takeIf {
@@ -4595,9 +4752,9 @@ private fun PhotoDetailsSheet(
                 it != resolvedTitle && it != image.name && it != image.name.substringBeforeLast('.')
             }
             val commentText = currentExif?.userComment?.ifBlank { null }
-            val hasNotes = commentText != null || resolvedDesc != null || !currentExif?.xpComment.isNullOrBlank() || !currentExif?.jpegComments.isNullOrEmpty()
+            val hasNotes = commentText != null || resolvedDesc != null || !currentExif?.xpComment.isNullOrBlank() || !currentExif?.jpegComments.isNullOrEmpty() || resolvedTitle != null
 
-            // 1. User Notes / Comments Card
+            // 1. Description Card
             if (hasNotes) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -4606,8 +4763,11 @@ private fun PhotoDetailsSheet(
                 ) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.AutoMirrored.Outlined.Comment, stringResource(R.string.details_user_comment), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                            Text(stringResource(R.string.details_user_comment), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            Icon(Icons.AutoMirrored.Outlined.Comment, stringResource(R.string.details_section_description), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Text(stringResource(R.string.details_section_description), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                        if (resolvedTitle != null) {
+                            DetailBlock(stringResource(R.string.details_title_field), resolvedTitle)
                         }
                         if (commentText != null) {
                             DetailBlock(stringResource(R.string.details_exif_user_comment), commentText)
@@ -4632,7 +4792,84 @@ private fun PhotoDetailsSheet(
                 }
             }
 
-            // 2. Camera & EXIF Metadata Card
+            // 2. Origin Card (Captured Date & Time, Location, Artist, Copyright, Software)
+            val parsedCapturedDate = remember(currentExif?.dateTimeOriginal, image.dateTaken, currentLocale, timelineDateFormat, customTimelineDateFormat) {
+                val dateMillis = runCatching {
+                    currentExif?.dateTimeOriginal?.let { raw ->
+                        val parser = java.text.SimpleDateFormat("yyyy:MM:dd HH:mm:ss", java.util.Locale.US)
+                        parser.parse(raw)?.time
+                    }
+                }.getOrNull() ?: image.dateTaken
+                val tf = DateFormat.getTimeInstance(DateFormat.MEDIUM, currentLocale)
+                val timeStr = tf.format(Date(dateMillis))
+                val localDate = Instant.ofEpochMilli(dateMillis).atZone(ZoneId.systemDefault()).toLocalDate()
+                val formatter = getTimelineFormatter(
+                    format = timelineDateFormat,
+                    isSameYear = false,
+                    showDayOfWeek = false,
+                    locale = currentLocale,
+                    customPattern = customTimelineDateFormat,
+                    smartYearHiding = false,
+                )
+                "${localDate.format(formatter)} · $timeStr"
+            }
+            val hasOrigin = parsedCapturedDate.isNotBlank() ||
+                (currentExif?.latitude != null && currentExif.longitude != null) ||
+                !currentExif?.artist.isNullOrBlank() ||
+                !currentExif?.copyright.isNullOrBlank() ||
+                !currentExif?.software.isNullOrBlank()
+
+            if (hasOrigin) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Outlined.LocationOn, stringResource(R.string.details_section_origin), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Text(stringResource(R.string.details_section_origin), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                        }
+                        DetailItem(stringResource(R.string.details_captured), parsedCapturedDate)
+
+                        if (currentExif?.latitude != null && currentExif.longitude != null) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(stringResource(R.string.details_location), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    val locStr = "%.4f, %.4f".format(Locale.US, currentExif.latitude, currentExif.longitude) +
+                                        (currentExif.altitude?.let { " (%.0f m)".format(Locale.US, it) } ?: "")
+                                    Text(locStr, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                                }
+                                TextButton(onClick = {
+                                    val uri = Uri.parse("geo:${currentExif.latitude},${currentExif.longitude}?q=${currentExif.latitude},${currentExif.longitude}(Photo+Location)")
+                                    val intent = Intent(Intent.ACTION_VIEW, uri)
+                                    runCatching { context.startActivity(intent) }
+                                }) {
+                                    Icon(Icons.Outlined.Map, null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text(stringResource(R.string.details_map))
+                                }
+                            }
+                        }
+
+                        if (!currentExif?.artist.isNullOrBlank()) {
+                            DetailItem(stringResource(R.string.details_artist), currentExif.artist!!)
+                        }
+                        if (!currentExif?.copyright.isNullOrBlank()) {
+                            DetailItem(stringResource(R.string.details_copyright), currentExif.copyright!!)
+                        }
+                        if (!currentExif?.software.isNullOrBlank()) {
+                            DetailItem(stringResource(R.string.details_software), currentExif.software!!)
+                        }
+                    }
+                }
+            }
+
+            // 3. Camera & Lens Card
             currentExif?.let { data ->
                 val hasCamera = data.cameraDisplayName != null || data.aperture != null || data.shutterSpeed != null || data.iso != null || data.focalLength != null
                 if (hasCamera) {
@@ -4660,49 +4897,6 @@ private fun PhotoDetailsSheet(
                             if (extraSpecs.isNotBlank()) {
                                 Text(extraSpecs, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            if (!data.software.isNullOrBlank()) {
-                                DetailItem(stringResource(R.string.details_software), data.software)
-                            }
-                            if (!data.artist.isNullOrBlank()) {
-                                DetailItem(stringResource(R.string.details_artist), data.artist)
-                            }
-                            if (!data.copyright.isNullOrBlank()) {
-                                DetailItem(stringResource(R.string.details_copyright), data.copyright)
-                            }
-                        }
-                    }
-                }
-
-                // 3. Location & Map Card
-                if (data.latitude != null && data.longitude != null) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f)),
-                        shape = RoundedCornerShape(16.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(14.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Icon(Icons.Outlined.LocationOn, stringResource(R.string.details_location), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                                    Text(stringResource(R.string.details_location), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                                }
-                                val locStr = "%.4f, %.4f".format(Locale.US, data.latitude, data.longitude) +
-                                    (data.altitude?.let { " (%.0f m)".format(Locale.US, it) } ?: "")
-                                Text(locStr, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            TextButton(onClick = {
-                                val uri = Uri.parse("geo:${data.latitude},${data.longitude}?q=${data.latitude},${data.longitude}(Photo+Location)")
-                                val intent = Intent(Intent.ACTION_VIEW, uri)
-                                runCatching { context.startActivity(intent) }
-                            }) {
-                                Icon(Icons.Outlined.Map, null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text(stringResource(R.string.details_map))
-                            }
                         }
                     }
                 }
@@ -4722,10 +4916,6 @@ private fun PhotoDetailsSheet(
                     val mp = if (image.width > 0 && image.height > 0) (image.width * image.height) / 1_000_000.0 else 0.0
                     val resText = if (mp > 0) "${image.width} × ${image.height} (%.1f MP)".format(Locale.US, mp) else "${image.width} × ${image.height}"
                     DetailItem(stringResource(R.string.details_resolution), resText)
-                    if (!currentExif?.dateTimeOriginal.isNullOrBlank()) {
-                        val capStr = currentExif.dateTimeOriginal + (currentExif.offsetTimeOriginal?.let { " ($it)" } ?: "")
-                        DetailItem(stringResource(R.string.details_captured), capStr)
-                    }
                     if (!currentExif?.imageUniqueId.isNullOrBlank()) {
                         DetailBlock(stringResource(R.string.details_image_unique_id), currentExif.imageUniqueId!!)
                     }
@@ -4745,27 +4935,31 @@ private fun PhotoDetailsSheet(
                         Icon(Icons.Outlined.Description, stringResource(R.string.details_file_info), tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                         Text(stringResource(R.string.details_file_info), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
-                        DetailBlock(
-                            label = stringResource(R.string.details_file_name),
-                            value = image.name,
-                            modifier = Modifier.weight(1f),
-                        )
-                        IconButton(onClick = { showRenameDialog = true }) {
-                            Icon(
-                                Icons.Outlined.Edit,
-                                contentDescription = stringResource(R.string.action_rename),
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp),
-                            )
+                        Text(stringResource(R.string.details_file_name), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            SelectionContainer(Modifier.weight(1f)) {
+                                Text(image.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            }
+                            IconButton(
+                                onClick = { showRenameDialog = true },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Edit,
+                                    contentDescription = stringResource(R.string.action_rename),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                         }
-                    }
-                    if (resolvedTitle != null) {
-                        DetailBlock(stringResource(R.string.details_title_field), resolvedTitle)
                     }
                     val formattedDate = remember(image.dateTaken, currentLocale, timelineDateFormat, customTimelineDateFormat) {
                         val tf = DateFormat.getTimeInstance(DateFormat.SHORT, currentLocale)
@@ -4789,7 +4983,7 @@ private fun PhotoDetailsSheet(
                 }
             }
 
-            // 5. Edit Metadata Action Button
+            // Edit Metadata Action Button
             if (!image.isVideo) {
                 Button(
                     onClick = { editing = true },
@@ -4811,6 +5005,7 @@ private fun PhotoDetailsSheet(
             onSave = { request ->
                 editing = false
                 onSave(request)
+                exifRevision++
             },
         )
     }
@@ -4883,7 +5078,7 @@ private fun RenameFileDialog(
                     label = { Text(stringResource(R.string.rename_file_hint)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    suffix = if (ext.isNotEmpty()) { { Text(".$ext") } } else null
+                    suffix = if (ext.isNotEmpty()) { { Text(".$ext", color = MaterialTheme.colorScheme.outline) } } else null
                 )
             }
         },

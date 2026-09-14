@@ -262,8 +262,10 @@ fun loadExifMetadata(context: android.content.Context, uri: Uri): ExifMetadata {
             } else rawModel
             val lensModel = cleanExifString(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_LENS_MODEL))
                 ?: cleanExifString(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_LENS_MAKE))
+            val imageDesc = cleanImageDescription(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_IMAGE_DESCRIPTION))
             val documentName = cleanExifString(exif.getAttribute("DocumentName"))
                 ?: cleanExifString(exif.getAttribute("XPTitle"))
+                ?: imageDesc
             val rawUserComment = cleanUserComment(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_USER_COMMENT))
             val xpComment = cleanExifString(exif.getAttribute("XPComment"))
             val userComment = if (jpegComments.isNotEmpty() && jpegComments.contains(rawUserComment)) {
@@ -271,7 +273,6 @@ fun loadExifMetadata(context: android.content.Context, uri: Uri): ExifMetadata {
             } else {
                 rawUserComment
             }
-            val imageDesc = cleanImageDescription(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_IMAGE_DESCRIPTION))
             val imageUniqueId = cleanExifString(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_IMAGE_UNIQUE_ID))
             val offsetTime = cleanExifString(exif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_OFFSET_TIME_ORIGINAL))
                 ?: cleanExifString(exif.getAttribute("OffsetTime"))
@@ -361,31 +362,57 @@ fun loadExifMetadata(context: android.content.Context, uri: Uri): ExifMetadata {
 
 fun applyExifToExifInterface(exif: androidx.exifinterface.media.ExifInterface, request: ExifEditRequest) {
     if (request.stripAllExif) {
-        exif.setAttribute("DocumentName", null)
-        exif.setAttribute("XPTitle", null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_USER_COMMENT, null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_IMAGE_DESCRIPTION, null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_ARTIST, null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_COPYRIGHT, null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_SOFTWARE, null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_MAKE, null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_MODEL, null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_LENS_MAKE, null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_LENS_MODEL, null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_LATITUDE, null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_LATITUDE_REF, null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_LONGITUDE, null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_LONGITUDE_REF, null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_ALTITUDE, null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_ALTITUDE_REF, null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_DATESTAMP, null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_TIMESTAMP, null)
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_PROCESSING_METHOD, null)
+        val tagsToClear = listOf(
+            "DocumentName", "XPTitle", "XPComment",
+            androidx.exifinterface.media.ExifInterface.TAG_USER_COMMENT,
+            androidx.exifinterface.media.ExifInterface.TAG_IMAGE_DESCRIPTION,
+            androidx.exifinterface.media.ExifInterface.TAG_ARTIST,
+            androidx.exifinterface.media.ExifInterface.TAG_COPYRIGHT,
+            androidx.exifinterface.media.ExifInterface.TAG_SOFTWARE,
+            androidx.exifinterface.media.ExifInterface.TAG_MAKE,
+            androidx.exifinterface.media.ExifInterface.TAG_MODEL,
+            androidx.exifinterface.media.ExifInterface.TAG_LENS_MAKE,
+            androidx.exifinterface.media.ExifInterface.TAG_LENS_MODEL,
+            androidx.exifinterface.media.ExifInterface.TAG_F_NUMBER,
+            androidx.exifinterface.media.ExifInterface.TAG_APERTURE_VALUE,
+            androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_TIME,
+            androidx.exifinterface.media.ExifInterface.TAG_SHUTTER_SPEED_VALUE,
+            androidx.exifinterface.media.ExifInterface.TAG_ISO_SPEED_RATINGS,
+            androidx.exifinterface.media.ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY,
+            androidx.exifinterface.media.ExifInterface.TAG_FOCAL_LENGTH,
+            androidx.exifinterface.media.ExifInterface.TAG_FLASH,
+            androidx.exifinterface.media.ExifInterface.TAG_WHITE_BALANCE,
+            androidx.exifinterface.media.ExifInterface.TAG_DATETIME_ORIGINAL,
+            androidx.exifinterface.media.ExifInterface.TAG_DATETIME,
+            androidx.exifinterface.media.ExifInterface.TAG_DATETIME_DIGITIZED,
+            androidx.exifinterface.media.ExifInterface.TAG_OFFSET_TIME_ORIGINAL,
+            androidx.exifinterface.media.ExifInterface.TAG_OFFSET_TIME,
+            androidx.exifinterface.media.ExifInterface.TAG_IMAGE_UNIQUE_ID,
+            androidx.exifinterface.media.ExifInterface.TAG_GPS_LATITUDE,
+            androidx.exifinterface.media.ExifInterface.TAG_GPS_LATITUDE_REF,
+            androidx.exifinterface.media.ExifInterface.TAG_GPS_LONGITUDE,
+            androidx.exifinterface.media.ExifInterface.TAG_GPS_LONGITUDE_REF,
+            androidx.exifinterface.media.ExifInterface.TAG_GPS_ALTITUDE,
+            androidx.exifinterface.media.ExifInterface.TAG_GPS_ALTITUDE_REF,
+            androidx.exifinterface.media.ExifInterface.TAG_GPS_DATESTAMP,
+            androidx.exifinterface.media.ExifInterface.TAG_GPS_TIMESTAMP,
+            androidx.exifinterface.media.ExifInterface.TAG_GPS_PROCESSING_METHOD,
+        )
+        for (tag in tagsToClear) {
+            exif.setAttribute(tag, null)
+        }
     } else {
-        exif.setAttribute("DocumentName", request.title.trim().ifBlank { null })
-        exif.setAttribute("XPTitle", request.title.trim().ifBlank { null })
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_USER_COMMENT, request.userComment?.trim()?.ifBlank { null })
-        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_IMAGE_DESCRIPTION, request.imageDescription?.trim()?.ifBlank { null })
+        val effectiveTitle = request.title.trim().ifBlank { null }
+        val effectiveDesc = request.imageDescription?.trim()?.ifBlank { null }
+        val effectiveUserComment = request.userComment?.trim()?.ifBlank { null }
+
+        val finalDescription = effectiveTitle ?: effectiveDesc
+        val finalComment = effectiveUserComment ?: (if (effectiveTitle != null) effectiveDesc else null)
+
+        exif.setAttribute("DocumentName", effectiveTitle)
+        exif.setAttribute("XPTitle", effectiveTitle)
+        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_IMAGE_DESCRIPTION, finalDescription)
+        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_USER_COMMENT, finalComment)
         exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_ARTIST, request.artist?.trim()?.ifBlank { null })
         exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_COPYRIGHT, request.copyright?.trim()?.ifBlank { null })
         exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_SOFTWARE, request.software?.trim()?.ifBlank { null })
@@ -402,22 +429,38 @@ fun applyExifToExifInterface(exif: androidx.exifinterface.media.ExifInterface, r
 
         if (request.fNumber != null && request.fNumber > 0) {
             exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_F_NUMBER, request.fNumber.toString())
+        } else {
+            exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_F_NUMBER, null)
         }
         if (request.exposureTime != null && request.exposureTime > 0) {
-            exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_TIME, request.exposureTime.toString())
+            val expStr = if (request.exposureTime < 1.0) {
+                "1/${kotlin.math.round(1.0 / request.exposureTime).toLong()}"
+            } else {
+                request.exposureTime.toString()
+            }
+            exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_TIME, expStr)
+        } else {
+            exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_TIME, null)
         }
         if (request.iso != null && request.iso > 0) {
             exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_ISO_SPEED_RATINGS, request.iso.toString())
             exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY, request.iso.toString())
+        } else {
+            exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_ISO_SPEED_RATINGS, null)
+            exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY, null)
         }
         if (request.focalLength != null && request.focalLength > 0) {
             exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_FOCAL_LENGTH, request.focalLength.toString())
+        } else {
+            exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_FOCAL_LENGTH, null)
         }
         if (request.whiteBalance != null) {
             exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_WHITE_BALANCE, request.whiteBalance.toString())
+        } else {
+            exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_WHITE_BALANCE, null)
         }
 
-        if (request.removeGps) {
+        if (request.removeGps || (request.latitude == null && request.longitude == null)) {
             exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_LATITUDE, null)
             exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_LATITUDE_REF, null)
             exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_GPS_LONGITUDE, null)
@@ -443,19 +486,21 @@ fun applyExifToExifInterface(exif: androidx.exifinterface.media.ExifInterface, r
 
 fun saveExifToMedia(context: android.content.Context, uri: Uri, path: String, request: ExifEditRequest): Boolean {
     var saved = false
-    runCatching {
-        context.contentResolver.openFileDescriptor(uri, "rw")?.use { pfd ->
-            val exif = androidx.exifinterface.media.ExifInterface(pfd.fileDescriptor)
-            applyExifToExifInterface(exif, request)
-            exif.saveAttributes()
-            saved = true
-        }
-    }
-    if (!saved && path.isNotBlank()) {
+    if (path.isNotBlank()) {
         runCatching {
             val file = java.io.File(path)
-            if (file.exists() && file.canWrite()) {
+            if (file.exists()) {
                 val exif = androidx.exifinterface.media.ExifInterface(file)
+                applyExifToExifInterface(exif, request)
+                exif.saveAttributes()
+                saved = true
+            }
+        }
+    }
+    if (!saved) {
+        runCatching {
+            context.contentResolver.openFileDescriptor(uri, "rw")?.use { pfd ->
+                val exif = androidx.exifinterface.media.ExifInterface(pfd.fileDescriptor)
                 applyExifToExifInterface(exif, request)
                 exif.saveAttributes()
                 saved = true

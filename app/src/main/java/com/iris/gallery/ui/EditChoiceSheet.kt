@@ -77,23 +77,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         clipData = android.content.ClipData.newUri(context.contentResolver, "media", uri)
     }
 
-    // 3. SEND intent (vital for photo/video markup tools like iMarkup, Google Photos, CapCut)
-    val sendIntent = Intent(Intent.ACTION_SEND).apply {
-        type = mimeType
-        putExtra(Intent.EXTRA_STREAM, uri)
-        clipData = android.content.ClipData.newUri(context.contentResolver, "media", uri)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-
-    // 4. Generic SEND intent with wildcard MIME
-    val genericSendIntent = Intent(Intent.ACTION_SEND).apply {
-        type = wildcardMime
-        putExtra(Intent.EXTRA_STREAM, uri)
-        clipData = android.content.ClipData.newUri(context.contentResolver, "media", uri)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-
-    // 5. Custom camera editor action (com.android.camera.action.EDITOR)
+    // 3. Custom camera editor action (com.android.camera.action.EDITOR)
     val cameraEditIntent = Intent("com.android.camera.action.EDITOR").apply {
         setDataAndType(uri, mimeType)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
@@ -101,17 +85,63 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         clipData = android.content.ClipData.newUri(context.contentResolver, "media", uri)
     }
 
-    // Query available activities (excluding ourselves)
+    // Query available activities (strictly excluding ourselves)
     val editMatches = runCatching { pm.queryIntentActivities(editIntent, 0) }.getOrDefault(emptyList())
         .filter { it.activityInfo.packageName != context.packageName }
     val genericEditMatches = runCatching { pm.queryIntentActivities(genericEditIntent, 0) }.getOrDefault(emptyList())
         .filter { it.activityInfo.packageName != context.packageName }
     val cameraMatches = runCatching { pm.queryIntentActivities(cameraEditIntent, 0) }.getOrDefault(emptyList())
         .filter { it.activityInfo.packageName != context.packageName }
-    val sendMatches = runCatching { pm.queryIntentActivities(sendIntent, 0) }.getOrDefault(emptyList())
-        .filter { it.activityInfo.packageName != context.packageName }
-    val genericSendMatches = runCatching { pm.queryIntentActivities(genericSendIntent, 0) }.getOrDefault(emptyList())
-        .filter { it.activityInfo.packageName != context.packageName }
+
+    // Known generic sharing handlers that should never be shown in an editor chooser
+    val shareBlacklist = setOf(
+        "com.google.android.googlequicksearchbox", // Google Image Search / Lens
+        "com.google.android.apps.lens",
+        "com.google.android.apps.turbo",
+        "com.google.android.apps.messaging",
+        "com.google.android.gm",
+        "com.google.android.apps.docs",
+        "com.google.android.keep",
+        "com.google.android.gms",
+        "com.samsung.android.app.sharelive", // Quick Share
+        "com.google.android.apps.sharing",
+        "android",
+        "com.android.bluetooth",
+        "com.android.nfc",
+    )
+
+    // For videos, if no ACTION_EDIT app exists, query ACTION_SEND but only keep authentic video editors
+    val specificVideoEditorIntents = if (image.isVideo) {
+        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = android.content.ClipData.newUri(context.contentResolver, "media", uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val sendMatches = runCatching { pm.queryIntentActivities(sendIntent, 0) }.getOrDefault(emptyList())
+            .filter { match ->
+                val pkg = match.activityInfo.packageName
+                pkg != context.packageName && pkg !in shareBlacklist && !shareBlacklist.any { pkg.startsWith(it) }
+            }
+            .filter { match ->
+                val pkg = match.activityInfo.packageName.lowercase()
+                val label = runCatching { match.loadLabel(pm).toString().lowercase() }.getOrDefault("")
+                listOf("edit", "cut", "shot", "video", "maker", "clip", "film", "movie", "vlog", "vn", "capcut", "inshot", "youcut", "kinemaster", "powerdirector", "motion").any {
+                    pkg.contains(it) || label.contains(it)
+                }
+            }
+        sendMatches.map { match ->
+            Intent(Intent.ACTION_SEND).apply {
+                component = android.content.ComponentName(match.activityInfo.packageName, match.activityInfo.name)
+                type = mimeType
+                putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = android.content.ClipData.newUri(context.contentResolver, "media", uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        }
+    } else {
+        emptyList()
+    }
 
     val chooserTitle = if (image.isVideo) {
         context.getString(R.string.edit_video_with_external_title)
@@ -119,23 +149,21 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         context.getString(R.string.edit_with_external_title)
     }
 
-    // Determine the base intent for chooser
     val baseIntent = when {
         editMatches.isNotEmpty() -> editIntent
         genericEditMatches.isNotEmpty() -> genericEditIntent
-        sendMatches.isNotEmpty() -> sendIntent
-        genericSendMatches.isNotEmpty() -> genericSendIntent
         cameraMatches.isNotEmpty() -> cameraEditIntent
-        else -> if (image.isVideo) sendIntent else editIntent
+        specificVideoEditorIntents.isNotEmpty() -> specificVideoEditorIntents.first()
+        else -> editIntent
     }
 
-    // Extra initial intents to present other editing apps
     val extraIntents = mutableListOf<Intent>()
-    if (baseIntent != editIntent) extraIntents.add(editIntent)
-    if (baseIntent != sendIntent) extraIntents.add(sendIntent)
-    if (baseIntent != genericEditIntent) extraIntents.add(genericEditIntent)
-    if (baseIntent != genericSendIntent) extraIntents.add(genericSendIntent)
+    if (baseIntent != editIntent && editMatches.isNotEmpty()) extraIntents.add(editIntent)
+    if (baseIntent != genericEditIntent && genericEditMatches.isNotEmpty()) extraIntents.add(genericEditIntent)
     if (baseIntent != cameraEditIntent && cameraMatches.isNotEmpty()) extraIntents.add(cameraEditIntent)
+    specificVideoEditorIntents.drop(if (baseIntent in specificVideoEditorIntents) 1 else 0).forEach {
+        extraIntents.add(it)
+    }
 
     val chooserIntent = Intent.createChooser(baseIntent, chooserTitle).apply {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -147,14 +175,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
     val launched = runCatching {
         context.startActivity(chooserIntent)
         true
-    }.getOrElse {
-        runCatching {
-            context.startActivity(Intent.createChooser(sendIntent, chooserTitle).apply {
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            })
-            true
-        }.getOrDefault(false)
-    }
+    }.getOrDefault(false)
 
     if (!launched) {
         android.widget.Toast.makeText(

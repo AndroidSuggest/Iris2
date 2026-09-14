@@ -58,6 +58,16 @@ class LibraryPreferences(context: Context) {
         copy(excludedFolders = folders.map { it.trim().removeSuffix("/") }.filter { it.isNotBlank() }.toSet())
     }
 
+    fun getCustomTitle(mediaId: Long): String? = prefs.getString("title_$mediaId", null)?.ifBlank { null }
+
+    fun setCustomTitle(mediaId: Long, title: String?) {
+        if (title.isNullOrBlank()) {
+            prefs.edit().remove("title_$mediaId").apply()
+        } else {
+            prefs.edit().putString("title_$mediaId", title.trim()).apply()
+        }
+    }
+
     private fun update(transform: LibraryPreferencesState.() -> LibraryPreferencesState) {
         _state.value = _state.value.transform()
         write(_state.value)

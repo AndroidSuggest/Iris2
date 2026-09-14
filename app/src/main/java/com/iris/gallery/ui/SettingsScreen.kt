@@ -113,6 +113,7 @@ import com.iris.gallery.data.StartupTab
 import com.iris.gallery.data.SUPPORTED_LANGUAGES
 import com.iris.gallery.data.ThemeMode
 import com.iris.gallery.data.TimelineDateFormat
+import com.iris.gallery.data.getSystemDefaultLocale
 import com.iris.gallery.ui.LanguageSelectionBottomSheet
 import com.iris.gallery.ui.setAppLanguage
 import kotlin.math.roundToInt
@@ -201,8 +202,8 @@ fun SettingsScreen(
                             fontWeight = FontWeight.SemiBold
                         )
                         val langLabel = if (currentLang.code.isEmpty()) {
-                            val sysLocale = java.util.Locale.getDefault()
-                            "${currentLang.flag} ${stringResource(R.string.settings_language_system_default)} (${sysLocale.displayLanguage.replaceFirstChar { it.uppercase() }})"
+                            val sysLocale = getSystemDefaultLocale()
+                            "${currentLang.flag} ${stringResource(R.string.settings_language_system_default)} (${sysLocale.getDisplayLanguage(sysLocale).replaceFirstChar { it.uppercase() }})"
                         } else {
                             "${currentLang.flag} ${currentLang.nativeName}"
                         }

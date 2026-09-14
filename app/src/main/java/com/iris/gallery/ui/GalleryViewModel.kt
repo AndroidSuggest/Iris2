@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import com.iris.gallery.data.DuplicateDetector
 import com.iris.gallery.data.DuplicateGroup
+import com.iris.gallery.data.ExifEditRequest
 
 import com.iris.gallery.data.AlbumRepository
 import com.iris.gallery.data.AlbumAction
@@ -201,22 +202,49 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
                     )
                 }
                 ThumbnailCache.remove(item.id)
-                refresh(showLoading = false)
             }
             onResult(updated)
         }
+    }
+
+    fun updateMediaMetadata(media: MediaImage, request: ExifEditRequest): MediaImage {
+        libraryPreferences.setCustomTitle(media.id, request.title.ifBlank { null })
+        val updated = media.copy(
+            title = request.title,
+            orientation = request.orientation,
+            dateTaken = request.dateTakenMillis,
+            description = request.imageDescription ?: media.description,
+        )
+        if (media.orientation != request.orientation) {
+            ThumbnailCache.remove(media.id)
+        }
+        _uiState.update { state ->
+            state.copy(
+                images = state.images.map { if (it.id == media.id) updated else it },
+                trashed = state.trashed.map { if (it.id == media.id) updated else it },
+            )
+        }
+        return updated
     }
 
     fun markMediaDeleted(ids: Collection<Long>, paths: Collection<String> = emptyList()) {
         if (ids.isEmpty() && paths.isEmpty()) return
         val idSet = ids.toSet()
         val pathSet = paths.toSet()
+        idSet.forEach { libraryPreferences.setCustomTitle(it, null) }
         repository.markMovedOrDeleted(idSet, pathSet)
         idSet.forEach { ThumbnailCache.remove(it) }
         _uiState.update { state ->
             state.copy(
                 images = state.images.filterNot { it.id in idSet || it.path in pathSet }
             )
+        }
+        if (_duplicateState.value.groups.isNotEmpty()) {
+            val updatedGroups = _duplicateState.value.groups.mapNotNull { group ->
+                val remainingItems = group.items.filterNot { it.id in idSet || it.path in pathSet }
+                if (remainingItems.size > 1) group.copy(items = remainingItems) else null
+            }
+            _duplicateState.update { it.copy(groups = updatedGroups) }
         }
     }
 

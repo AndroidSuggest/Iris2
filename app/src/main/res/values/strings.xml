@@ -42,6 +42,8 @@
     <string name="action_comfortable_grid">Comfortable grid</string>
     <string name="action_compact_grid">Compact grid</string>
     <string name="action_back">Back</string>
+    <string name="action_previous">Previous</string>
+    <string name="action_next">Next</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_save">Save</string>
     <string name="action_save_copy">Save copy</string>
@@ -242,6 +244,8 @@
     <string name="details_edit_permission_note">Android will ask before changing media owned by another app.</string>
 
     <!-- EXIF Metadata & Details -->
+    <string name="details_section_description">Description</string>
+    <string name="details_section_origin">Origin</string>
     <string name="details_user_comment">User comment</string>
     <string name="details_user_comment_hint">No comment added</string>
     <string name="details_lens">Lens</string>
@@ -264,6 +268,8 @@
     <!-- EXIF Editor -->
     <string name="exif_editor_title">EXIF &amp; Metadata Editor</string>
     <string name="exif_editor_subtitle">View, edit, or strip metadata tags</string>
+    <string name="exif_tab_description">Description</string>
+    <string name="exif_tab_origin">Origin</string>
     <string name="exif_tab_notes">Notes &amp; Info</string>
     <string name="exif_tab_camera">Camera &amp; Lens</string>
     <string name="exif_tab_location">Location</string>

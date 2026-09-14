@@ -1,6 +1,7 @@
 package com.iris.gallery.data
 
 import android.content.Context
+import android.os.Build
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -59,8 +60,18 @@ val SUPPORTED_LANGUAGES = listOf(
     AppLanguage("tr", "Turkish", "Türkçe", "🇹🇷"),
 )
 
+fun getSystemDefaultLocale(): java.util.Locale {
+    val config = android.content.res.Resources.getSystem().configuration
+    return if (Build.VERSION.SDK_INT >= 24) {
+        config.locales[0] ?: java.util.Locale.getDefault()
+    } else {
+        @Suppress("DEPRECATION")
+        config.locale ?: java.util.Locale.getDefault()
+    }
+}
+
 fun detectBestLanguage(): String {
-    val systemLang = java.util.Locale.getDefault().language.lowercase()
+    val systemLang = getSystemDefaultLocale().language.lowercase()
     val match = SUPPORTED_LANGUAGES.firstOrNull { it.code.isNotEmpty() && it.code == systemLang }
     return match?.code ?: "en"
 }
