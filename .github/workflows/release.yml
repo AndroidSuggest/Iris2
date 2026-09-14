@@ -40,7 +40,7 @@ jobs:
           fi
 
       - name: Build Release APK
-        run: ./gradlew assembleFossRelease --no-daemon --parallel --build-cache --configuration-cache
+        run: ./gradlew assembleRelease --no-daemon --parallel --build-cache --configuration-cache
 
       - name: Upload release APK
         uses: softprops/action-gh-release@v3
