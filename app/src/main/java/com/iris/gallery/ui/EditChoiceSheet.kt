@@ -64,13 +64,13 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
     // 1. Primary EDIT intent with specific MIME
     val editIntent = Intent(Intent.ACTION_EDIT).apply {
         setDataAndType(uri, mimeType)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
 
     // 2. Generic EDIT intent with wildcard MIME (image/* or video/*)
     val genericEditIntent = Intent(Intent.ACTION_EDIT).apply {
         setDataAndType(uri, wildcardMime)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         putExtra(Intent.EXTRA_STREAM, uri)
         clipData = android.content.ClipData.newUri(context.contentResolver, "media", uri)
     }
@@ -78,7 +78,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
     // 3. Custom camera editor action (com.android.camera.action.EDITOR)
     val cameraEditIntent = Intent("com.android.camera.action.EDITOR").apply {
         setDataAndType(uri, mimeType)
-        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         putExtra(Intent.EXTRA_STREAM, uri)
         clipData = android.content.ClipData.newUri(context.contentResolver, "media", uri)
     }
@@ -115,7 +115,6 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         val sendIntent = Intent(Intent.ACTION_SEND).apply {
             type = mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
-            clipData = android.content.ClipData.newUri(context.contentResolver, "media", uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         val sendMatches = runCatching { pm.queryIntentActivities(sendIntent, 0) }.getOrDefault(emptyList())
@@ -167,22 +166,15 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
 
     val chooserIntent = Intent.createChooser(baseIntent, chooserTitle).apply {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        /*if (extraIntents.isNotEmpty()) {
+        if (extraIntents.isNotEmpty()) {
             putExtra(Intent.EXTRA_INITIAL_INTENTS, extraIntents.toTypedArray())
-        }*/
+        }
     }
 
-    val launched = try {
-    context.startActivity(chooserIntent)
-    true
-} catch (e: Exception) {
-    Toast.makeText(
-        context,
-        "${e.javaClass.simpleName}: ${e.message}",
-        Toast.LENGTH_LONG
-    ).show()
-    false
-}
+    val launched = runCatching {
+        context.startActivity(chooserIntent)
+        true
+    }.getOrDefault(false)
 
     if (!launched) {
         android.widget.Toast.makeText(
