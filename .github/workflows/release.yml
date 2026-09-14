@@ -40,52 +40,12 @@ jobs:
           fi
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleFossRelease --no-daemon --parallel --build-cache --configuration-cache
 
-      - name: Extract Version Name
-        run: |
-          VERSION_NAME=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts || echo "0.1.0")
-          echo "APP_VERSION=$VERSION_NAME" >> $GITHUB_ENV
-
-      - name: Sign Release APK
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          mkdir -p build-artifacts
-          RAW_APK=$(find app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "$KEYSTORE_BASE64" | base64 --decode > /tmp/release.jks
-            BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
-            $BUILD_TOOLS/apksigner sign \
-              --ks /tmp/release.jks \
-              --ks-key-alias "$KEY_ALIAS" \
-              --ks-pass "pass:$KEYSTORE_PASSWORD" \
-              --key-pass "pass:$KEY_PASSWORD" \
-              --out "build-artifacts/Iris-Gallery-v${{ env.APP_VERSION }}.apk" \
-              "$RAW_APK"
-            $BUILD_TOOLS/apksigner verify --verbose "build-artifacts/Iris-Gallery-v${{ env.APP_VERSION }}.apk"
-          else
-            cp "$RAW_APK" "build-artifacts/Iris-Gallery-v${{ env.APP_VERSION }}-unsigned.apk"
-          fi
-
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload release APK
+        uses: softprops/action-gh-release@v3
         with:
-          name: Iris-Gallery-v${{ env.APP_VERSION }}-CI
-          path: build-artifacts/*.apk
-          retention-days: 14
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: build-artifacts/*.apk
-          name: Iris Gallery v${{ env.APP_VERSION }}
-          draft: false
-          prerelease: false
-          generate_release_notes: true
+          tag_name: v1.0.0
+          files: app/build/outputs/apk/release/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
