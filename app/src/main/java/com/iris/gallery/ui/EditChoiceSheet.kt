@@ -161,7 +161,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
     if (baseIntent != editIntent && editMatches.isNotEmpty()) extraIntents.add(editIntent)
     if (baseIntent != genericEditIntent && genericEditMatches.isNotEmpty()) extraIntents.add(genericEditIntent)
     if (baseIntent != cameraEditIntent && cameraMatches.isNotEmpty()) extraIntents.add(cameraEditIntent)
-    specificVideoEditorIntents..filterNot { it == baseIntent }.forEach {
+    specificVideoEditorIntents.filterNot { it == baseIntent }.forEach {
         extraIntents.add(it)
     }
 
