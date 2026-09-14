@@ -208,12 +208,14 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun updateMediaMetadata(media: MediaImage, request: ExifEditRequest): MediaImage {
-        libraryPreferences.setCustomTitle(media.id, request.title.ifBlank { null })
+        val newTitle = if (request.stripAllExif) "" else request.title
+        val newDescription = if (request.stripAllExif) "" else (request.imageDescription ?: media.description)
+        libraryPreferences.setCustomTitle(media.id, if (request.stripAllExif) null else request.title.ifBlank { null })
         val updated = media.copy(
-            title = request.title,
+            title = newTitle,
             orientation = request.orientation,
             dateTaken = request.dateTakenMillis,
-            description = request.imageDescription ?: media.description,
+            description = newDescription,
         )
         if (media.orientation != request.orientation) {
             ThumbnailCache.remove(media.id)
@@ -259,22 +261,12 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     fun refresh(showLoading: Boolean = true) {
         viewModelScope.launch {
-            if (showLoading) {
-                ThumbnailCache.clear()
-                repository.clearVerifiedPathsCache()
-                runCatching {
-                    coil3.SingletonImageLoader.get(getApplication<Application>()).memoryCache?.clear()
-                }
-            }
             vaultRepository.loadVaultItems()
             val trashList = trashRepository.loadTrashItems()
             if (showLoading) {
                 _uiState.value = _uiState.value.copy(loading = true, trashed = trashList, error = null)
             }
             val media = runCatching { repository.loadImages() }
-            if (showLoading) {
-                delay(250)
-            }
             media.fold(
                 onSuccess = {
                     _uiState.value = _uiState.value.copy(images = it, loading = false, trashed = trashList, error = null)

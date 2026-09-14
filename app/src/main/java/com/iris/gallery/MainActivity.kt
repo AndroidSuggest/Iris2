@@ -83,6 +83,12 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -494,8 +500,14 @@ private fun GalleryApp(
         if (it.resultCode == Activity.RESULT_OK && pending != null) {
             val (media, values, reqAndCb) = pending
             val (request, callback) = reqAndCb
-            saveExifToMedia(context, canonicalMediaUri(media), media.path, request)
-            context.contentResolver.update(canonicalMediaUri(media), values, null, null)
+            val uri = canonicalMediaUri(context, media)
+            saveExifToMedia(context, uri, media.path, request)
+            if (media.id > 0 && uri.toString().startsWith("content://media/")) {
+                runCatching { context.contentResolver.update(uri, values, null, null) }
+            }
+            if (media.path.isNotBlank()) {
+                android.media.MediaScannerConnection.scanFile(context, arrayOf(media.path), null, null)
+            }
             val updated = viewModel.updateMediaMetadata(media, request)
             callback?.invoke(updated)
             Toast.makeText(context, R.string.toast_metadata_updated, Toast.LENGTH_SHORT).show()
@@ -964,29 +976,60 @@ private fun GalleryApp(
                         onEditMetadata = { media, request, callback ->
                             val values = ContentValues().apply {
                                 put(MediaStore.MediaColumns.DISPLAY_NAME, request.displayName)
-                                put(MediaStore.MediaColumns.TITLE, request.title)
+                                if (request.stripAllExif) {
+                                    putNull(MediaStore.MediaColumns.TITLE)
+                                    putNull(MediaStore.Images.Media.DESCRIPTION)
+                                } else {
+                                    if (request.title.isNotBlank()) {
+                                        put(MediaStore.MediaColumns.TITLE, request.title)
+                                    } else {
+                                        putNull(MediaStore.MediaColumns.TITLE)
+                                    }
+                                    if (request.imageDescription != null) {
+                                        put(MediaStore.Images.Media.DESCRIPTION, request.imageDescription)
+                                    } else {
+                                        putNull(MediaStore.Images.Media.DESCRIPTION)
+                                    }
+                                }
                                 put(MediaStore.Images.Media.DATE_TAKEN, request.dateTakenMillis)
                                 put(MediaStore.Images.Media.ORIENTATION, request.orientation)
-                                if (request.imageDescription != null) {
-                                    put(MediaStore.Images.Media.DESCRIPTION, request.imageDescription)
-                                }
                             }
-                            if (Build.VERSION.SDK_INT >= 30) runCatching {
-                                pendingMetadata = Triple(media, values, Pair(request, callback))
-                                val writeReq = MediaStore.createWriteRequest(context.contentResolver, listOf(canonicalMediaUri(media)))
-                                metadataWriteLauncher.launch(IntentSenderRequest.Builder(writeReq.intentSender).build())
-                            }.onFailure {
-                                pendingMetadata = null
-                                callback(null)
-                                Toast.makeText(context, context.getString(R.string.toast_could_not_request_metadata), Toast.LENGTH_LONG).show()
-                            } else runCatching {
-                                saveExifToMedia(context, canonicalMediaUri(media), media.path, request)
-                                context.contentResolver.update(canonicalMediaUri(media), values, null, null)
+
+                            val uri = canonicalMediaUri(context, media)
+                            val directSaved = runCatching {
+                                saveExifToMedia(context, uri, media.path, request)
+                            }.getOrDefault(false)
+
+                            val mediaStoreUpdated = runCatching {
+                                if (media.id > 0 && uri.toString().startsWith("content://media/")) {
+                                    context.contentResolver.update(uri, values, null, null) > 0
+                                } else false
+                            }.getOrDefault(false)
+
+                            if (directSaved || mediaStoreUpdated) {
+                                if (media.path.isNotBlank()) {
+                                    android.media.MediaScannerConnection.scanFile(context, arrayOf(media.path), null, null)
+                                }
                                 val updated = viewModel.updateMediaMetadata(media, request)
                                 callback(updated)
                                 Toast.makeText(context, R.string.toast_metadata_updated, Toast.LENGTH_SHORT).show()
-                            }.onFailure {
+                            } else if (Build.VERSION.SDK_INT >= 30) {
+                                runCatching {
+                                    if (!uri.toString().startsWith("content://media/")) {
+                                        error("Non-MediaStore URI cannot request write permission: $uri")
+                                    }
+                                    pendingMetadata = Triple(media, values, Pair(request, callback))
+                                    val writeReq = MediaStore.createWriteRequest(context.contentResolver, listOf(uri))
+                                    metadataWriteLauncher.launch(IntentSenderRequest.Builder(writeReq.intentSender).build())
+                                }.onFailure { e ->
+                                    android.util.Log.e("IrisGallery", "Failed to create write request for metadata", e)
+                                    pendingMetadata = null
+                                    callback(null)
+                                    Toast.makeText(context, context.getString(R.string.toast_could_not_request_metadata), Toast.LENGTH_LONG).show()
+                                }
+                            } else {
                                 callback(null)
+                                Toast.makeText(context, context.getString(R.string.toast_could_not_request_metadata), Toast.LENGTH_LONG).show()
                             }
                         },
                         duplicateState = duplicateState,
@@ -1078,10 +1121,40 @@ private fun GalleryApp(
     }
 }
 
+private fun canonicalMediaUri(context: android.content.Context, item: MediaImage): Uri {
+    if (item.uri.toString().startsWith("content://media/")) {
+        return item.uri
+    }
+    if (item.uri.scheme != "file" && item.id > 0) {
+        return if (item.isVideo) ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, item.id)
+        else ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, item.id)
+    }
+    if (item.path.isNotBlank()) {
+        val table = if (item.isVideo) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        runCatching {
+            context.contentResolver.query(
+                table,
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.DATA}=?",
+                arrayOf(item.path),
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val id = cursor.getLong(0)
+                    if (id > 0) {
+                        return ContentUris.withAppendedId(table, id)
+                    }
+                }
+            }
+        }
+    }
+    return item.uri
+}
+
 private fun canonicalMediaUri(item: MediaImage): Uri {
     return if (item.uri.toString().startsWith("content://media/")) {
         item.uri
-    } else if (item.id > 0) {
+    } else if (item.uri.scheme != "file" && item.id > 0) {
         if (item.isVideo) ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, item.id)
         else ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, item.id)
     } else {
@@ -1437,6 +1510,32 @@ private fun GalleryScaffold(
         }
     }
 
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val isWideScreen = configuration.screenWidthDp >= 600
+    val isDarkTheme = when (settings.themeMode) {
+        com.iris.gallery.data.ThemeMode.LIGHT -> false
+        com.iris.gallery.data.ThemeMode.DARK -> true
+        com.iris.gallery.data.ThemeMode.SYSTEM -> isSystemInDarkTheme()
+    }
+    val isAmoled = isDarkTheme && settings.amoledBlack
+
+    val handleTabSelected: (Int) -> Unit = { index ->
+        tabScope.launch {
+            val current = tabPagerState.currentPage
+            if (current == index) {
+                if (index == 1) selectedAlbumId = null
+                if (index == 3) librarySection = null
+            } else if (kotlin.math.abs(current - index) > 1) {
+                tabPagerState.scrollToPage(index)
+            } else {
+                tabPagerState.animateScrollToPage(index, animationSpec = tween(220, easing = FastOutSlowInEasing))
+            }
+        }
+    }
+
+    val showFloatingBar = isLandscape && selectedIds.isEmpty() && selectedId == null && editorImage == null && activeOverlayScreen == null && externalMedia == null
+
     Box(Modifier.fillMaxSize()) {
         Scaffold(
         topBar = {
@@ -1722,59 +1821,29 @@ private fun GalleryScaffold(
           }
         },
         bottomBar = {
-          if (selectedIds.isEmpty()) {
-            val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-            val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-            val isWideScreen = configuration.screenWidthDp >= 600
-            val isDarkTheme = when (settings.themeMode) {
-                com.iris.gallery.data.ThemeMode.LIGHT -> false
-                com.iris.gallery.data.ThemeMode.DARK -> true
-                com.iris.gallery.data.ThemeMode.SYSTEM -> isSystemInDarkTheme()
-            }
-            val isAmoled = isDarkTheme && settings.amoledBlack
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding(),
-                contentAlignment = Alignment.Center
+          if (!isLandscape && selectedIds.isEmpty()) {
+            Surface(
+                color = if (isAmoled) Color.Black else MaterialTheme.colorScheme.surfaceContainer,
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Surface(
-                    color = if (isAmoled) Color.Black else MaterialTheme.colorScheme.surfaceContainer,
-                    shape = if (isLandscape) RoundedCornerShape(28.dp) else RoundedCornerShape(0.dp),
-                    border = if (isLandscape) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)) else null,
-                    modifier = if (isLandscape) {
-                        Modifier
-                            .padding(bottom = 8.dp)
-                            .widthIn(max = 500.dp)
-                    } else if (isWideScreen) {
-                        Modifier.widthIn(max = 560.dp)
-                    } else {
-                        Modifier.fillMaxWidth()
-                    }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding(),
+                    contentAlignment = Alignment.Center
                 ) {
                     NavigationBar(
                         containerColor = Color.Transparent,
-                        windowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-                        modifier = if (isLandscape) Modifier.height(60.dp) else Modifier
+                        windowInsets = WindowInsets(0, 0, 0, 0),
+                        modifier = Modifier.widthIn(max = 560.dp)
                     ) {
                         labels.forEachIndexed { index, label ->
                             NavigationBarItem(
                                 selected = destination == index,
-                                onClick = { tabScope.launch {
-                                    val current = tabPagerState.currentPage
-                                    if (current == index) {
-                                        if (index == 1) selectedAlbumId = null
-                                        if (index == 3) librarySection = null
-                                    } else if (kotlin.math.abs(current - index) > 1) {
-                                        tabPagerState.scrollToPage(index)
-                                    } else {
-                                        tabPagerState.animateScrollToPage(index, animationSpec = tween(220, easing = FastOutSlowInEasing))
-                                    }
-                                } },
+                                onClick = { handleTabSelected(index) },
                                 icon = { AnimatedNavigationIcon(icons[index], destination == index, label) },
-                                label = if (isLandscape) null else { { Text(label) } },
-                                alwaysShowLabel = !isLandscape,
+                                label = { Text(label) },
+                                alwaysShowLabel = true,
                             )
                         }
                     }
@@ -1782,7 +1851,20 @@ private fun GalleryScaffold(
             }
           }
         },
-    ) { padding ->
+    ) { scaffoldPadding ->
+      val navBarsBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+      val floatingBarBottomPadding = 74.dp + navBarsBottom
+      val layoutDirection = LocalLayoutDirection.current
+      val padding = if (isLandscape && selectedIds.isEmpty()) {
+          PaddingValues(
+              start = scaffoldPadding.calculateStartPadding(layoutDirection),
+              top = scaffoldPadding.calculateTopPadding(),
+              end = scaffoldPadding.calculateEndPadding(layoutDirection),
+              bottom = floatingBarBottomPadding
+          )
+      } else {
+          scaffoldPadding
+      }
       when {
         loading && images.isEmpty() -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         error != null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { Text(error) }
@@ -2315,6 +2397,50 @@ private fun GalleryScaffold(
       }
     }
 
+    AnimatedVisibility(
+        visible = showFloatingBar,
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .navigationBarsPadding()
+            .padding(bottom = 10.dp),
+        enter = fadeIn(tween(180)) + slideInVertically(
+            animationSpec = tween(220, easing = FastOutSlowInEasing),
+            initialOffsetY = { it }
+        ),
+        exit = fadeOut(tween(150)) + slideOutVertically(
+            animationSpec = tween(180, easing = FastOutSlowInEasing),
+            targetOffsetY = { it }
+        )
+    ) {
+        Surface(
+            color = if (isAmoled) Color.Black.copy(alpha = 0.90f) else MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.90f),
+            shape = RoundedCornerShape(28.dp),
+            shadowElevation = 8.dp,
+            tonalElevation = 4.dp,
+            border = BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isAmoled) 0.45f else 0.25f)
+            ),
+            modifier = Modifier.widthIn(max = 500.dp)
+        ) {
+            NavigationBar(
+                containerColor = Color.Transparent,
+                windowInsets = WindowInsets(0, 0, 0, 0),
+                modifier = Modifier.height(60.dp)
+            ) {
+                labels.forEachIndexed { index, label ->
+                    NavigationBarItem(
+                        selected = destination == index,
+                        onClick = { handleTabSelected(index) },
+                        icon = { AnimatedNavigationIcon(icons[index], destination == index, label) },
+                        label = null,
+                        alwaysShowLabel = false,
+                    )
+                }
+            }
+        }
+    }
+
     if (confirmEmptyTrash) {
         AlertDialog(
             onDismissRequest = { confirmEmptyTrash = false },
@@ -2782,9 +2908,17 @@ private fun DuplicateReviewScreen(
     var selectedIds by remember(state.groups) {
         mutableStateOf(state.groups.flatMap { it.items.drop(1) }.mapTo(mutableSetOf()) { it.id }.toSet())
     }
+    val layoutDir = LocalLayoutDirection.current
+    val startPadding = padding.calculateStartPadding(layoutDir)
+    val endPadding = padding.calculateEndPadding(layoutDir)
+    val topPadding = padding.calculateTopPadding()
+    val bottomPadding = padding.calculateBottomPadding()
+
     LazyColumn(
-        Modifier.fillMaxSize().padding(padding),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        Modifier
+            .fillMaxSize()
+            .padding(start = startPadding, top = topPadding, end = endPadding, bottom = 0.dp),
+        contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 12.dp + bottomPadding),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
@@ -3042,10 +3176,16 @@ private fun PhotoGrid(
         }
         labelFn
     }
+    val layoutDirection = LocalLayoutDirection.current
+    val startPadding = padding.calculateStartPadding(layoutDirection)
+    val endPadding = padding.calculateEndPadding(layoutDirection)
+    val topPadding = padding.calculateTopPadding()
+    val bottomPadding = padding.calculateBottomPadding()
+
     Box(
         Modifier
             .fillMaxSize()
-            .padding(padding)
+            .padding(start = startPadding, top = topPadding, end = endPadding, bottom = 0.dp)
             .pointerInput(Unit) {
                 if (currentOnCellSizeChange == null) return@pointerInput
                 awaitEachGesture {
@@ -3152,7 +3292,12 @@ private fun PhotoGrid(
                     },
                 )
             },
-            contentPadding = PaddingValues(horizontal = gridSpacing.dp.dp, vertical = (gridSpacing.dp + 3).dp),
+            contentPadding = PaddingValues(
+                start = gridSpacing.dp.dp,
+                top = (gridSpacing.dp + 3).dp,
+                end = gridSpacing.dp.dp,
+                bottom = (gridSpacing.dp + 3).dp + bottomPadding
+            ),
             horizontalArrangement = Arrangement.spacedBy(gridSpacing.dp.dp),
             verticalArrangement = Arrangement.spacedBy(gridSpacing.dp.dp),
         ) {
@@ -3237,6 +3382,7 @@ private fun PhotoGrid(
                     Modifier
                         .align(Alignment.CenterEnd)
                         .fillMaxHeight()
+                        .padding(bottom = bottomPadding)
                         .width(40.dp)
                         .graphicsLayer { alpha = scrollerAlpha }
                         .pointerInput(timelineItems.size) {

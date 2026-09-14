@@ -363,7 +363,7 @@ fun loadExifMetadata(context: android.content.Context, uri: Uri): ExifMetadata {
 fun applyExifToExifInterface(exif: androidx.exifinterface.media.ExifInterface, request: ExifEditRequest) {
     if (request.stripAllExif) {
         val tagsToClear = listOf(
-            "DocumentName", "XPTitle", "XPComment",
+            "DocumentName", "XPTitle", "XPComment", "XPAuthor", "XPSubject", "XPKeywords",
             androidx.exifinterface.media.ExifInterface.TAG_USER_COMMENT,
             androidx.exifinterface.media.ExifInterface.TAG_IMAGE_DESCRIPTION,
             androidx.exifinterface.media.ExifInterface.TAG_ARTIST,
@@ -387,6 +387,11 @@ fun applyExifToExifInterface(exif: androidx.exifinterface.media.ExifInterface, r
             androidx.exifinterface.media.ExifInterface.TAG_DATETIME_DIGITIZED,
             androidx.exifinterface.media.ExifInterface.TAG_OFFSET_TIME_ORIGINAL,
             androidx.exifinterface.media.ExifInterface.TAG_OFFSET_TIME,
+            androidx.exifinterface.media.ExifInterface.TAG_SUBSEC_TIME_ORIGINAL,
+            androidx.exifinterface.media.ExifInterface.TAG_SUBSEC_TIME_DIGITIZED,
+            androidx.exifinterface.media.ExifInterface.TAG_SUBSEC_TIME,
+            androidx.exifinterface.media.ExifInterface.TAG_EXPOSURE_PROGRAM,
+            androidx.exifinterface.media.ExifInterface.TAG_METERING_MODE,
             androidx.exifinterface.media.ExifInterface.TAG_IMAGE_UNIQUE_ID,
             androidx.exifinterface.media.ExifInterface.TAG_GPS_LATITUDE,
             androidx.exifinterface.media.ExifInterface.TAG_GPS_LATITUDE_REF,
@@ -487,7 +492,7 @@ fun applyExifToExifInterface(exif: androidx.exifinterface.media.ExifInterface, r
 fun saveExifToMedia(context: android.content.Context, uri: Uri, path: String, request: ExifEditRequest): Boolean {
     var saved = false
     if (path.isNotBlank()) {
-        runCatching {
+        val fileRes = runCatching {
             val file = java.io.File(path)
             if (file.exists()) {
                 val exif = androidx.exifinterface.media.ExifInterface(file)
@@ -496,15 +501,21 @@ fun saveExifToMedia(context: android.content.Context, uri: Uri, path: String, re
                 saved = true
             }
         }
+        if (fileRes.isFailure) {
+            android.util.Log.w("IrisGallery", "Direct file save failed for $path", fileRes.exceptionOrNull())
+        }
     }
     if (!saved) {
-        runCatching {
+        val pfdRes = runCatching {
             context.contentResolver.openFileDescriptor(uri, "rw")?.use { pfd ->
                 val exif = androidx.exifinterface.media.ExifInterface(pfd.fileDescriptor)
                 applyExifToExifInterface(exif, request)
                 exif.saveAttributes()
                 saved = true
             }
+        }
+        if (pfdRes.isFailure) {
+            android.util.Log.w("IrisGallery", "PFD save failed for $uri", pfdRes.exceptionOrNull())
         }
     }
     return saved

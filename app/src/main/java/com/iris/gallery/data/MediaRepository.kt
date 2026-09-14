@@ -16,10 +16,19 @@ class MediaRepository(private val context: Context) {
     private val snapshot = AtomicFile(File(context.filesDir, "media_snapshot.bin"))
     private val libraryPreferences = LibraryPreferences(context)
 
+    companion object {
+        private const val VERIFIED_PATH_TTL_MS = 10 * 60 * 1_000L // 10 minutes
+    }
+
+    private val inMemoryCache = java.util.concurrent.ConcurrentHashMap<Long, MediaImage>()
+    private val recentMovedOrDeletedIds = java.util.concurrent.ConcurrentHashMap<Long, Long>()
+    private val recentMovedOrDeletedPaths = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val verifiedPathsCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     fun loadSnapshot(): List<MediaImage> = runCatching {
         DataInputStream(snapshot.openRead().buffered()).use { input ->
             if (input.readInt() != 2) return@use emptyList()
-            List(input.readInt().coerceIn(0, 100_000)) {
+            val list = List(input.readInt().coerceIn(0, 100_000)) {
                 val id = input.readLong(); val isVideo = input.readBoolean()
                 val collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL)
                 val name = input.readUTF(); val dateTaken = input.readLong()
@@ -32,16 +41,25 @@ class MediaRepository(private val context: Context) {
                     width, height, path, bucketId, bucketName,
                     isVideo, durationMs, mimeType, sizeBytes, orientation, title)
             }
+            val now = System.currentTimeMillis()
+            list.forEach { item ->
+                inMemoryCache[item.id] = item
+                if (item.path.isNotBlank()) {
+                    verifiedPathsCache[item.path] = now
+                }
+            }
+            list
         }
     }.getOrDefault(emptyList())
 
-    private val recentMovedOrDeletedIds = java.util.concurrent.ConcurrentHashMap<Long, Long>()
-    private val recentMovedOrDeletedPaths = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private val verifiedPathsCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
-
     fun markMovedOrDeleted(ids: Set<Long>, paths: Set<String>) {
         val now = System.currentTimeMillis()
-        ids.forEach { if (it > 0) recentMovedOrDeletedIds[it] = now }
+        ids.forEach {
+            if (it > 0) {
+                recentMovedOrDeletedIds[it] = now
+                inMemoryCache.remove(it)
+            }
+        }
         paths.forEach {
             if (it.isNotBlank()) {
                 recentMovedOrDeletedPaths[it] = now
@@ -52,6 +70,7 @@ class MediaRepository(private val context: Context) {
 
     fun clearVerifiedPathsCache() {
         verifiedPathsCache.clear()
+        inMemoryCache.clear()
     }
 
     suspend fun rescanStorage(): Int = withContext(Dispatchers.IO) {
@@ -229,7 +248,7 @@ class MediaRepository(private val context: Context) {
                             if (recentMovedOrDeletedPaths.containsKey(filePath)) {
                                 continue
                             }
-                            val isCachedValid = verifiedPathsCache[filePath]?.let { now - it < 15_000 } == true
+                            val isCachedValid = verifiedPathsCache[filePath]?.let { now - it < VERIFIED_PATH_TTL_MS } == true
                             var exists = isCachedValid
                             if (!exists) {
                                 val file = File(filePath)
@@ -245,6 +264,7 @@ class MediaRepository(private val context: Context) {
                             }
                             if (!exists) {
                                 verifiedPathsCache.remove(filePath)
+                                inMemoryCache.remove(mediaId)
                                 android.media.MediaScannerConnection.scanFile(context, arrayOf(filePath), null, null)
                                 if (android.os.Build.VERSION.SDK_INT <= 28) {
                                     runCatching { context.contentResolver.delete(mediaUri, null, null) }
@@ -252,26 +272,51 @@ class MediaRepository(private val context: Context) {
                                 continue
                             }
                         }
-                        add(
-                            MediaImage(
-                                id = mediaId,
-                                uri = mediaUri,
-                                name = displayName,
-                                dateTaken = cursor.getLong(taken).takeIf { it > 0 }
-                                    ?: cursor.getLong(added) * 1_000,
-                                width = cursor.getInt(width),
-                                height = cursor.getInt(height),
-                                path = filePath,
-                                bucketId = cursor.getLong(bucketId),
-                                bucketName = cursor.getString(bucketName).orEmpty().ifBlank { "Other" },
-                                isVideo = isVid,
-                                durationMs = cursor.getLong(duration),
-                                mimeType = cursor.getString(mimeType).orEmpty(),
-                                sizeBytes = cursor.getLong(size),
-                                orientation = cursor.getInt(orientation),
-                                title = libraryPreferences.getCustomTitle(mediaId) ?: cursor.getString(title).orEmpty(),
-                            ),
+
+                        val existing = inMemoryCache[mediaId]
+                        val takenTime = cursor.getLong(taken).takeIf { it > 0 }
+                            ?: (cursor.getLong(added) * 1_000)
+                        val itemWidth = cursor.getInt(width)
+                        val itemHeight = cursor.getInt(height)
+                        val itemDuration = cursor.getLong(duration)
+                        val itemSize = cursor.getLong(size)
+                        val itemOrientation = cursor.getInt(orientation)
+                        val itemTitle = libraryPreferences.getCustomTitle(mediaId) ?: cursor.getString(title).orEmpty()
+
+                        if (existing != null &&
+                            existing.name == displayName &&
+                            existing.path == filePath &&
+                            existing.dateTaken == takenTime &&
+                            existing.sizeBytes == itemSize &&
+                            existing.orientation == itemOrientation &&
+                            existing.width == itemWidth &&
+                            existing.height == itemHeight &&
+                            existing.title == itemTitle &&
+                            existing.isVideo == isVid
+                        ) {
+                            add(existing)
+                            continue
+                        }
+
+                        val newImage = MediaImage(
+                            id = mediaId,
+                            uri = mediaUri,
+                            name = displayName,
+                            dateTaken = takenTime,
+                            width = itemWidth,
+                            height = itemHeight,
+                            path = filePath,
+                            bucketId = cursor.getLong(bucketId),
+                            bucketName = cursor.getString(bucketName).orEmpty().ifBlank { "Other" },
+                            isVideo = isVid,
+                            durationMs = itemDuration,
+                            mimeType = cursor.getString(mimeType).orEmpty(),
+                            sizeBytes = itemSize,
+                            orientation = itemOrientation,
+                            title = itemTitle,
                         )
+                        inMemoryCache[mediaId] = newImage
+                        add(newImage)
                     }
                 }
             }
@@ -280,7 +325,11 @@ class MediaRepository(private val context: Context) {
             compareByDescending<MediaImage> { it.dateTaken }
                 .thenByDescending { it.id }
         )
-        if (!trashed) saveSnapshot(sorted)
+        if (!trashed) {
+            val validIds = sorted.mapTo(HashSet(sorted.size)) { it.id }
+            inMemoryCache.keys.retainAll(validIds)
+            saveSnapshot(sorted)
+        }
         sorted
     }
 

@@ -20,6 +20,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -150,11 +153,16 @@ fun AlbumsGrid(
     }
 
     val spacingDp = gridSpacing.dp.dp
+    val layoutDirection = LocalLayoutDirection.current
+    val startPadding = padding.calculateStartPadding(layoutDirection)
+    val endPadding = padding.calculateEndPadding(layoutDirection)
+    val topPadding = padding.calculateTopPadding()
+    val bottomPadding = padding.calculateBottomPadding()
 
     Box(
         Modifier
             .fillMaxSize()
-            .padding(padding)
+            .padding(start = startPadding, top = topPadding, end = endPadding, bottom = 0.dp)
             .pointerInput(Unit) {
                 if (currentOnCellSizeChange == null) return@pointerInput
                 awaitEachGesture {
@@ -179,7 +187,7 @@ fun AlbumsGrid(
             columns = GridCells.Adaptive(cellSize),
             state = state,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 8.dp + bottomPadding),
             horizontalArrangement = Arrangement.spacedBy(spacingDp + 8.dp),
             verticalArrangement = Arrangement.spacedBy(spacingDp + 12.dp),
         ) {

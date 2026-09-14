@@ -617,9 +617,9 @@ fun ExifEditorSheet(
                             shutterSpeedStr.toDoubleOrNull()
                         }
 
-                        val customTitle = mediaTitle.trim()
+                        val customTitle = if (stripAllExif) "" else mediaTitle.trim()
                         val effectiveTitle = if (customTitle.isNotBlank()) customTitle else ""
-                        val effectiveDesc = imageDescription.trim().ifBlank { null }
+                        val effectiveDesc = if (stripAllExif) null else imageDescription.trim().ifBlank { null }
 
                         val request = ExifEditRequest(
                             displayName = image.name,
@@ -666,6 +666,7 @@ fun ExifEditorSheet(
                 Button(
                     onClick = {
                         stripAllExif = true
+                        mediaTitle = ""
                         userComment = ""
                         imageDescription = ""
                         artist = ""
