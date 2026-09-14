@@ -130,6 +130,11 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
                     pkg.contains(it) || label.contains(it)
                 }
             }
+            Toast.makeText(
+    context,
+    "SEND gefunden: ${sendMatches.size}",
+    Toast.LENGTH_LONG
+).show()
         sendMatches.map { match ->
             Intent(Intent.ACTION_SEND).apply {
                 component = android.content.ComponentName(match.activityInfo.packageName, match.activityInfo.name)
