@@ -65,8 +65,6 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
     val editIntent = Intent(Intent.ACTION_EDIT).apply {
         setDataAndType(uri, mimeType)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-        putExtra(Intent.EXTRA_STREAM, uri)
-        clipData = android.content.ClipData.newUri(context.contentResolver, "media", uri)
     }
 
     // 2. Generic EDIT intent with wildcard MIME (image/* or video/*)
@@ -112,6 +110,8 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
 
     // For videos, if no ACTION_EDIT app exists, query ACTION_SEND but only keep authentic video editors
     val specificVideoEditorIntents = if (image.isVideo) {
+        val editorKeywords = listOf("edit", "cut", "shot", "video", "maker", "clip", "film", "movie", "vlog", "vn", "capcut", "inshot", "youcut", "kinemaster", "powerdirector", "motion")
+
         val sendIntent = Intent(Intent.ACTION_SEND).apply {
             type = mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
@@ -126,7 +126,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
             .filter { match ->
                 val pkg = match.activityInfo.packageName.lowercase()
                 val label = runCatching { match.loadLabel(pm).toString().lowercase() }.getOrDefault("")
-                listOf("edit", "cut", "shot", "video", "maker", "clip", "film", "movie", "vlog", "vn", "capcut", "inshot", "youcut", "kinemaster", "powerdirector", "motion").any {
+                pkg == "com.google.android.apps.photos" || editorKeywords.any {
                     pkg.contains(it) || label.contains(it)
                 }
             }
@@ -161,7 +161,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
     if (baseIntent != editIntent && editMatches.isNotEmpty()) extraIntents.add(editIntent)
     if (baseIntent != genericEditIntent && genericEditMatches.isNotEmpty()) extraIntents.add(genericEditIntent)
     if (baseIntent != cameraEditIntent && cameraMatches.isNotEmpty()) extraIntents.add(cameraEditIntent)
-    specificVideoEditorIntents.drop(if (baseIntent in specificVideoEditorIntents) 1 else 0).forEach {
+    specificVideoEditorIntents..filterNot { it == baseIntent }.forEach {
         extraIntents.add(it)
     }
 
