@@ -91,24 +91,6 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
     val cameraMatches = runCatching { pm.queryIntentActivities(cameraEditIntent, 0) }.getOrDefault(emptyList())
         .filter { it.activityInfo.packageName != context.packageName }
 
-            Toast.makeText(
-    context,
-    "SEND gefunden: ${editMatches.size}",
-    Toast.LENGTH_LONG
-).show()
-
-                        Toast.makeText(
-    context,
-    "SEND gefunden: ${genericEditMatches.size}",
-    Toast.LENGTH_LONG
-).show()
-
-                                    Toast.makeText(
-    context,
-    "SEND gefunden: ${cameraMatches.size}",
-    Toast.LENGTH_LONG
-).show()
-
     // Known generic sharing handlers that should never be shown in an editor chooser
     val shareBlacklist = setOf(
         "com.google.android.googlequicksearchbox", // Google Image Search / Lens
@@ -183,12 +165,6 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         extraIntents.add(it)
     }
 
-    Toast.makeText(
-    context,
-    "baseIntent = ${baseIntent != null}, extra = ${extraIntents.size}",
-    Toast.LENGTH_LONG
-).show()
-
     val chooserIntent = Intent.createChooser(baseIntent, chooserTitle).apply {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         if (extraIntents.isNotEmpty()) {
@@ -196,10 +172,17 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         }
     }
 
-    val launched = runCatching {
-        context.startActivity(chooserIntent)
-        true
-    }.getOrDefault(false)
+    val launched = try {
+    context.startActivity(chooserIntent)
+    true
+} catch (e: Exception) {
+    Toast.makeText(
+        context,
+        "${e.javaClass.simpleName}: ${e.message}",
+        Toast.LENGTH_LONG
+    ).show()
+    false
+}
 
     if (!launched) {
         android.widget.Toast.makeText(
