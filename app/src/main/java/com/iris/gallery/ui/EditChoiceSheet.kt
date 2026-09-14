@@ -148,11 +148,6 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
                     pkg.contains(it) || label.contains(it)
                 }
             }
-            Toast.makeText(
-    context,
-    "SEND gefunden: ${sendMatches.size}",
-    Toast.LENGTH_LONG
-).show()
         sendMatches.map { match ->
             Intent(Intent.ACTION_SEND).apply {
                 component = android.content.ComponentName(match.activityInfo.packageName, match.activityInfo.name)
@@ -187,6 +182,12 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
     specificVideoEditorIntents.filterNot { it == baseIntent }.forEach {
         extraIntents.add(it)
     }
+
+    Toast.makeText(
+    context,
+    "baseIntent = ${baseIntent != null}, extra = ${extraIntents.size}",
+    Toast.LENGTH_LONG
+).show()
 
     val chooserIntent = Intent.createChooser(baseIntent, chooserTitle).apply {
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
