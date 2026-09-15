@@ -5,6 +5,8 @@ import android.content.ClipData
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.LabeledIntent
+import android.content.pm.ResolveInfo
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -184,7 +186,18 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         }
 
         // First element is baseIntent, remove it with drop(1)
-        val extraIntents = candidateIntents.drop(1)
+        val extraIntents = candidateIntents.drop(1).mapNotNull { intent ->
+            val resolveInfo = runCatching {
+                pm.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+            }.getOrNull() ?: return@mapNotNull null
+
+            LabeledIntent(
+                intent,
+                resolveInfo.activityInfo.packageName,
+                resolveInfo.loadLabel(pm),
+                resolveInfo.getIconResource()
+            )
+        }
 
         val chooserIntent = Intent.createChooser(baseIntent, chooserTitle).apply {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
