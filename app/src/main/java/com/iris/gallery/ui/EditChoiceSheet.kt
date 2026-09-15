@@ -197,6 +197,19 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
                 "TT",
                 resolveInfo.getIconResource()
             )
+
+                val appLabel = pm.getApplicationLabel(
+        resolveInfo.activityInfo.applicationInfo
+    )
+
+    val activityLabel = resolveInfo.activityInfo.loadLabel(pm)
+
+    Toast.makeText(
+        context,
+        "App: $appLabel\nActivity: $activityLabel",
+        Toast.LENGTH_LONG
+    ).show()
+
         }
 
         val chooserIntent = Intent.createChooser(baseIntent, chooserTitle).apply {
