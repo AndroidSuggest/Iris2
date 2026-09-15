@@ -160,33 +160,15 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         context.getString(R.string.edit_with_external_title)
     }
 
-    val baseIntent = when {
-        editIntents.isNotEmpty() -> editIntents.first()
-        genericEditIntents.isNotEmpty() -> genericEditIntents.first()
-        cameraEditIntents.isNotEmpty() -> cameraEditIntents.first()
-        specificVideoEditorIntents.isNotEmpty() -> specificVideoEditorIntents.first()
-        else -> null
-    }
+    val combinedEditorIntents = (editIntents + genericEditIntents + cameraEditIntents + specificVideoEditorIntents).distinctBy { it.component }
+    val baseIntent = combinedEditorIntents.firstOrNull()
 
     if (baseIntent != null) {
         baseIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
-        
-        val extraIntents = mutableListOf<Intent>()
-        editIntents.filter { it.component != baseIntent.component }.forEach {
+
+        // First element is baseIntent, remove it with drop(1)
+        val extraIntents = combinedEditorIntents.drop(1).onEach {
             it.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
-            extraIntents.add(it)
-        }
-        genericEditIntents.filter { it.component != baseIntent.component }.forEach {
-            it.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
-            extraIntents.add(it)
-        }
-        cameraEditIntents.filter { it.component != baseIntent.component }.forEach {
-            it.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
-            extraIntents.add(it)
-        }
-        specificVideoEditorIntents.filter { it.component != baseIntent.component }.forEach {
-            it.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
-            extraIntents.add(it)
         }
 
         val chooserIntent = Intent.createChooser(baseIntent, chooserTitle).apply {
