@@ -174,7 +174,8 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         val chooserIntent = Intent.createChooser(baseIntent, chooserTitle).apply {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             if (extraIntents.isNotEmpty()) {
-                putExtra(Intent.EXTRA_INITIAL_INTENTS, extraIntents.toTypedArray())
+                // Use EXTRA_ALTERNATE_INTENTS instead of EXTRA_INITIAL_INTENTS, because Android 10+ limits EXTRA_INITIAL_INTENTS to maximal 2 extra items shown or use both extras with different list
+                putExtra(Intent.EXTRA_ALTERNATE_INTENTS, extraIntents.toTypedArray())
             }
         }
 
