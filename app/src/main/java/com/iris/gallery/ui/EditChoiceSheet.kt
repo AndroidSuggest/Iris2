@@ -172,6 +172,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
             context.getString(R.string.no_external_editor_found),
             android.widget.Toast.LENGTH_SHORT
         ).show()
+        return
     }
 
     val extraIntents = mutableListOf<Intent>()
@@ -195,7 +196,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
     if (!launched) {
         android.widget.Toast.makeText(
             context,
-            context.getString(R.string.no_external_editor_found),
+            context.getString(R.string.external_editor_launch_failed),
             android.widget.Toast.LENGTH_SHORT
         ).show()
     }
