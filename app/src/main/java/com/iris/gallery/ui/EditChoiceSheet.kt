@@ -207,7 +207,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
 android.widget.Toast.makeText(
         context,
         "App: $appLabel\nActivity: $activityLabel",
-        Toast.LENGTH_LONG
+        android.widget.Toast.LENGTH_LONG
     ).show()
 
         }
