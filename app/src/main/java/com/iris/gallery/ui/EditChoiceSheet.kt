@@ -141,7 +141,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
             .filter { match ->
                 val pkg = match.activityInfo.packageName.lowercase()
                 val label = runCatching { match.loadLabel(pm).toString().lowercase() }.getOrDefault("")
-                (pkg == "com.google.android.apps.photos" && match.activityInfo.name == "com.google.android.apps.photos.editor.intents.EditVideoActivity") || editorKeywords.any {
+                (pkg == "com.google.android.apps.photos"/* && match.activityInfo.name == "com.google.android.apps.photos.editor.intents.EditVideoActivity"*/) || editorKeywords.any {
                     pkg.contains(it) || label.contains(it)
                 }
             }
@@ -160,7 +160,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         context.getString(R.string.edit_with_external_title)
     }
 
-    val combinedEditorIntents = (editIntents + genericEditIntents + cameraEditIntents + specificVideoEditorIntents).distinctBy { it.component }
+    val combinedEditorIntents = (editIntents + genericEditIntents + cameraEditIntents + specificVideoEditorIntents).distinctBy { it.component?.packageName }
     val baseIntent = combinedEditorIntents.firstOrNull()
 
     if (baseIntent != null) {
