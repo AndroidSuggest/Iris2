@@ -169,23 +169,23 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
     }
 
     if (baseIntent != null) {
-        baseIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
+        baseIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
         
         val extraIntents = mutableListOf<Intent>()
         editIntents.filter { it.component != baseIntent.component }.forEach {
-            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
+            it.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
             extraIntents.add(it)
         }
         genericEditIntents.filter { it.component != baseIntent.component }.forEach {
-            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
+            it.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
             extraIntents.add(it)
         }
         cameraEditIntents.filter { it.component != baseIntent.component }.forEach {
-            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
+            it.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
             extraIntents.add(it)
         }
         specificVideoEditorIntents.filter { it.component != baseIntent.component }.forEach {
-            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
+            it.addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
             extraIntents.add(it)
         }
 
