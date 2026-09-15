@@ -86,30 +86,21 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         .filter { it.activityInfo.packageName != context.packageName }
     val editIntents = editMatches.map { match ->
         Intent(editIntent).apply {
-            component = ComponentName(
-                match.activityInfo.packageName,
-                match.activityInfo.name
-            )
+            component = android.content.ComponentName(match.activityInfo.packageName, match.activityInfo.name)
         }
     }
     val genericEditMatches = runCatching { pm.queryIntentActivities(genericEditIntent, 0) }.getOrDefault(emptyList())
         .filter { it.activityInfo.packageName != context.packageName }
     val genericEditIntents = genericEditMatches.map { match ->
         Intent(genericEditIntent).apply {
-            component = ComponentName(
-                match.activityInfo.packageName,
-                match.activityInfo.name
-            )
+            component = android.content.ComponentName(match.activityInfo.packageName, match.activityInfo.name)
         }
     }
     val cameraMatches = runCatching { pm.queryIntentActivities(cameraEditIntent, 0) }.getOrDefault(emptyList())
         .filter { it.activityInfo.packageName != context.packageName }
     val cameraEditIntents = cameraMatches.map { match ->
         Intent(cameraEditIntent).apply {
-            component = ComponentName(
-                match.activityInfo.packageName,
-                match.activityInfo.name
-            )
+            component = android.content.ComponentName(match.activityInfo.packageName, match.activityInfo.name)
         }
     }
 
@@ -153,12 +144,8 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
                 }
             }
         sendMatches.map { match ->
-            Intent(Intent.ACTION_SEND).apply {
+            Intent(sendIntent).apply {
                 component = android.content.ComponentName(match.activityInfo.packageName, match.activityInfo.name)
-                type = mimeType
-                putExtra(Intent.EXTRA_STREAM, uri)
-                clipData = android.content.ClipData.newUri(context.contentResolver, "media", uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
         }
     } else {
