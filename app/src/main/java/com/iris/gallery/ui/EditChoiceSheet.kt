@@ -128,17 +128,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
                     pkg.contains(it) || label.contains(it)
                 }
             }
-        sendMatches.map { match ->
-            Intent(Intent.ACTION_SEND).apply {
-                component = android.content.ComponentName(match.activityInfo.packageName, match.activityInfo.name)
-                type = mimeType
-                putExtra(Intent.EXTRA_STREAM, uri)
-                clipData = android.content.ClipData.newUri(context.contentResolver, "media", uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-        }
-
-        Toast.makeText(
+            Toast.makeText(
     context,
     sendMatches
         .filter {
@@ -150,6 +140,15 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         },
     Toast.LENGTH_LONG
 ).show()
+        sendMatches.map { match ->
+            Intent(Intent.ACTION_SEND).apply {
+                component = android.content.ComponentName(match.activityInfo.packageName, match.activityInfo.name)
+                type = mimeType
+                putExtra(Intent.EXTRA_STREAM, uri)
+                clipData = android.content.ClipData.newUri(context.contentResolver, "media", uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        }
     } else {
         emptyList()
     }
