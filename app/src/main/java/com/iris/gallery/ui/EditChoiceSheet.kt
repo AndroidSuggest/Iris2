@@ -136,7 +136,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
                 "com.google.android.apps.photos"
         }
         .joinToString("\n") {
-            "${it.loadLabel(pm)}\n${it.activityInfo.name}"
+            "${it.loadLabel(pm)}\n${it.activityInfo.name.substringAfterLast(".")}"
         },
     Toast.LENGTH_LONG
 ).show()
