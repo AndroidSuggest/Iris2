@@ -194,7 +194,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
             LabeledIntent(
                 intent,
                 resolveInfo.activityInfo.packageName,
-                resolveInfo.loadLabel(pm),
+                "TT",
                 resolveInfo.getIconResource()
             )
         }
