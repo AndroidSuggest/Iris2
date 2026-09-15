@@ -65,12 +65,14 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
     val editIntent = Intent(Intent.ACTION_EDIT).apply {
         setDataAndType(uri, mimeType)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        clipData = android.content.ClipData.newUri(context.contentResolver, "media", uri)
     }
 
     // 2. Generic EDIT intent with wildcard MIME (image/* or video/*)
     val genericEditIntent = Intent(Intent.ACTION_EDIT).apply {
         setDataAndType(uri, wildcardMime)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        clipData = android.content.ClipData.newUri(context.contentResolver, "media", uri)
     }
 
     // 3. Custom camera editor action (com.android.camera.action.EDITOR)
@@ -167,23 +169,23 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
     }
 
     if (baseIntent != null) {
-        baseIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        baseIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         
         val extraIntents = mutableListOf<Intent>()
         editIntents.filter { it.component != baseIntent.component }.forEach {
-            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             extraIntents.add(it)
         }
         genericEditIntents.filter { it.component != baseIntent.component }.forEach {
-            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             extraIntents.add(it)
         }
         cameraEditIntents.filter { it.component != baseIntent.component }.forEach {
-            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             extraIntents.add(it)
         }
-        specificVideoEditorIntents.forEach {
-            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        specificVideoEditorIntents.filter { it.component != baseIntent.component }.forEach {
+            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             extraIntents.add(it)
         }
 
