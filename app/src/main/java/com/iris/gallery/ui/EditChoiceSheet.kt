@@ -204,7 +204,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
 
     val activityLabel = resolveInfo.activityInfo.loadLabel(pm)
 
-    Toast.makeText(
+android.widget.Toast.makeText(
         context,
         "App: $appLabel\nActivity: $activityLabel",
         Toast.LENGTH_LONG
