@@ -160,7 +160,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         context.getString(R.string.edit_with_external_title)
     }
 
-    val combinedEditorIntents = (editIntents + genericEditIntents + cameraEditIntents + specificVideoEditorIntents).distinctBy { it.component?.packageName }
+    val combinedEditorIntents = (editIntents + genericEditIntents + cameraEditIntents + specificVideoEditorIntents).distinctBy { it.component }
     val baseIntent = combinedEditorIntents.firstOrNull()
 
     if (baseIntent != null) {
@@ -174,7 +174,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         val chooserIntent = Intent.createChooser(baseIntent, chooserTitle).apply {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             if (extraIntents.isNotEmpty()) {
-                putExtra(Intent.EXTRA_INITIAL_INTENTS, extraIntents.toTypedArray())
+                putExtra(Intent.EXTRA_ALTERNATE_INTENTS, extraIntents.toTypedArray())
             }
         }
 
