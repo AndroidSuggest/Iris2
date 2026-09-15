@@ -173,6 +173,8 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
             android.widget.Toast.LENGTH_SHORT
         ).show()
         return
+    } else {
+        baseIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
     }
 
     val extraIntents = mutableListOf<Intent>()
