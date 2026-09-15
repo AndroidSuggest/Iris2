@@ -174,7 +174,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         val chooserIntent = Intent.createChooser(baseIntent, chooserTitle).apply {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             if (extraIntents.isNotEmpty()) {
-                putExtra(Intent.EXTRA_ALTERNATE_INTENTS, extraIntents.toTypedArray())
+                putExtra(Intent.EXTRA_INITIAL_INTENTS, extraIntents.toTypedArray())
             }
         }
 
