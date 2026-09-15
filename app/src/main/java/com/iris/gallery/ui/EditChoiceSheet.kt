@@ -5,8 +5,8 @@ import android.content.ClipData
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.LabeledIntent
-import android.content.pm.ResolveInfo
+import android.content.Intent.LabeledIntent
+import android.content.pm.PackageManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
