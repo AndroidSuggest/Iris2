@@ -201,7 +201,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
                 addAll(genericEditMatches)
                 addAll(cameraEditMatches)
                 addAll(specificVideoEditorMatches)
-            }.distinct())
+            }.distinct().toTypedArray())
         }
 
         val launched = runCatching {
