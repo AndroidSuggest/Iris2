@@ -5,8 +5,6 @@ import android.content.ClipData
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.LabeledIntent
-import android.content.pm.PackageManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -113,70 +111,75 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
 
     // Query available activities (strictly excluding ourselves and generic sharing targets)
     val editMatches = runCatching { pm.queryIntentActivities(editIntent, 0) }.getOrDefault(emptyList())
-        .filter { isAllowedEditor(it.activityInfo.packageName) }
-    val editIntents = editMatches.map { match ->
-        Intent(editIntent).apply {
-            component = ComponentName(match.activityInfo.packageName, match.activityInfo.name)
+        .filterNot { isAllowedEditor(it.activityInfo.packageName) }
+        .map {
+            ComponentName(
+                it.activityInfo.packageName,
+                it.activityInfo.name
+            )
         }
-    }
 
     val genericEditMatches = runCatching { pm.queryIntentActivities(genericEditIntent, 0) }.getOrDefault(emptyList())
-        .filter { isAllowedEditor(it.activityInfo.packageName) }
-    val genericEditIntents = genericEditMatches.map { match ->
-        Intent(genericEditIntent).apply {
-            component = ComponentName(match.activityInfo.packageName, match.activityInfo.name)
+        .filterNot { isAllowedEditor(it.activityInfo.packageName) }
+        .map {
+            ComponentName(
+                it.activityInfo.packageName,
+                it.activityInfo.name
+            )
         }
-    }
 
     val cameraMatches = runCatching { pm.queryIntentActivities(cameraEditIntent, 0) }.getOrDefault(emptyList())
-        .filter { isAllowedEditor(it.activityInfo.packageName) }
-    val cameraEditIntents = cameraMatches.map { match ->
-        Intent(cameraEditIntent).apply {
-            component = ComponentName(match.activityInfo.packageName, match.activityInfo.name)
+        .filterNot { isAllowedEditor(it.activityInfo.packageName) }
+        .map {
+            ComponentName(
+                it.activityInfo.packageName,
+                it.activityInfo.name
+            )
         }
-    }
 
     // For videos, external editors (CapCut, InShot, VN, YouCut, Google Photos EditVideoActivity, etc.)
     // rarely register ACTION_EDIT and instead register ACTION_SEND or dedicated editor activities.
-    val specificVideoEditorIntents = if (image.isVideo) {
+    var specificVideoEditorIntent: Intent? = null
+    var specificVideoEditorMatches = emptyList<ComponentName>()
+
+    if (image.isVideo) {
         val editorKeywords = listOf(
             "edit", "cut", "shot", "video", "maker", "clip",
             "film", "movie", "vlog", "vn", "capcut", "inshot",
             "youcut", "kinemaster", "powerdirector", "motion"
         )
-        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+
+        specificVideoEditorIntent = Intent(Intent.ACTION_SEND).apply {
             type = mimeType
             putExtra(Intent.EXTRA_STREAM, uri)
             clipData = ClipData.newUri(context.contentResolver, "media", uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_DOCUMENT)
         }
-        val sendMatches = runCatching { pm.queryIntentActivities(sendIntent, 0) }.getOrDefault(emptyList())
-            .filter { isAllowedEditor(it.activityInfo.packageName) }
-            .filter { match ->
+        specificVideoEditorMatches = runCatching { pm.queryIntentActivities(specificVideoEditorIntent, 0) }.getOrDefault(emptyList())
+            .filterNot { match ->
                 val pkg = match.activityInfo.packageName.lowercase()
                 val cls = match.activityInfo.name.lowercase()
                 val label = runCatching { match.loadLabel(pm).toString().lowercase() }.getOrDefault("")
-                (pkg == "com.google.android.apps.photos"/* && match.activityInfo.name == "com.google.android.apps.photos.editor.intents.EditVideoActivity"*/ && cls.contains("editvideo")) ||
-                    editorKeywords.any { pkg.contains(it) || cls.contains(it) || label.contains(it) }
+                isAllowedEditor(match.activityInfo.packageName) && ((pkg == "com.google.android.apps.photos"/* && match.activityInfo.name == "com.google.android.apps.photos.editor.intents.EditVideoActivity"*/ && cls.contains("editvideo")) ||
+                    editorKeywords.any { pkg.contains(it) || cls.contains(it) || label.contains(it) })
             }
-        sendMatches.map { match ->
-            Intent(sendIntent).apply {
-                component = ComponentName(match.activityInfo.packageName, match.activityInfo.name)
+            .map {
+                ComponentName(
+                    it.activityInfo.packageName,
+                    it.activityInfo.name
+                )
             }
-        }
-    } else {
-        emptyList()
     }
 
-    // Deduplicate by package name so no app appears multiple times in the chooser val candidateIntents = (editIntents + genericEditIntents + cameraEditIntents + specificVideoEditorIntents).distinctBy { it.component }
-    val candidateIntents = buildList {
-        addAll(editIntents)
-        addAll(genericEditIntents)
-        addAll(cameraEditIntents)
-        addAll(specificVideoEditorIntents)
-    }.distinctBy { it.component }
-
-    val baseIntent = candidateIntents.firstOrNull()
+    val excludedIntents = buildList {
+        addAll(editMatches)
+        addAll(genericEditMatches)
+        addAll(cameraEditMatches)
+        addAll(specificVideoEditorMatches)
+    }.distinct()
+        
+    //val baseIntent = candidateIntents.firstOrNull()
+    val baseIntent = editIntent
 
     if (baseIntent != null) {
         val chooserTitle = if (image.isVideo) {
@@ -186,41 +189,23 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
         }
 
         // First element is baseIntent, remove it with drop(1)
-        val extraIntents = candidateIntents.drop(1).mapNotNull { intent ->
-            val resolveInfo = runCatching {
-                pm.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
-            }.getOrNull() ?: return@mapNotNull null
-
-            LabeledIntent(
-                intent,
-                resolveInfo.activityInfo.packageName,
-                resolveInfo.activityInfo.loadLabel,
-                resolveInfo.getIconResource()
-            )
-/*
-                val appLabel = pm.getApplicationLabel(
-        resolveInfo.activityInfo.applicationInfo
-    )
-
-    val activityLabel = resolveInfo.activityInfo.loadLabel(pm)
-
-android.widget.Toast.makeText(
-        context,
-        "App: $appLabel\nActivity: $activityLabel",
-        android.widget.Toast.LENGTH_LONG
-    ).show()*/
-
-        }
+        val extraIntents = candidateIntents.drop(1)
+        val alternateIntents = listOf(
+            genericEditIntent,
+            cameraEditIntent,
+            specificVideoEditorIntent
+        )
 
         val chooserIntent = Intent.createChooser(baseIntent, chooserTitle).apply {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            if (extraIntents.isNotEmpty()) {
+            if (alternateIntents.isNotEmpty()) {
                 // Use EXTRA_ALTERNATE_INTENTS instead of EXTRA_INITIAL_INTENTS, because Android 10+ limits EXTRA_INITIAL_INTENTS to maximal 2 extra items shown or use both extras with different list
-                putExtra(Intent.EXTRA_INITIAL_INTENTS, extraIntents.toTypedArray())
+                putExtra(Intent.EXTRA_ALTERNATE_INTENTS, alternateIntents.toTypedArray())
             }
             if (context !is Activity) {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
+            putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, excludedIntents)
         }
 
         val launched = runCatching {
