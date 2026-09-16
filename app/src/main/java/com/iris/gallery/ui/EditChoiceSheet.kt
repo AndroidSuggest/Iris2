@@ -204,11 +204,11 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
 
     val activityLabel = resolveInfo.activityInfo.loadLabel(pm)
 
-android.widget.Toast.makeText(
+/*android.widget.Toast.makeText(
         context,
         "App: $appLabel\nActivity: $activityLabel",
         android.widget.Toast.LENGTH_LONG
-    ).show()
+    ).show()*/
 
         }
 
@@ -216,7 +216,7 @@ android.widget.Toast.makeText(
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             if (extraIntents.isNotEmpty()) {
                 // Use EXTRA_ALTERNATE_INTENTS instead of EXTRA_INITIAL_INTENTS, because Android 10+ limits EXTRA_INITIAL_INTENTS to maximal 2 extra items shown or use both extras with different list
-                putExtra(Intent.EXTRA_ALTERNATE_INTENTS, extraIntents.toTypedArray())
+                putExtra(Intent.EXTRA_INITIAL_INTENTS, extraIntents.toTypedArray())
             }
             if (context !is Activity) {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
