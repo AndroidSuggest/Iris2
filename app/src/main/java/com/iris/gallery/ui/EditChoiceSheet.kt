@@ -128,7 +128,7 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
             )
         }
 
-    val cameraMatches = runCatching { pm.queryIntentActivities(cameraEditIntent, 0) }.getOrDefault(emptyList())
+    val cameraEditMatches = runCatching { pm.queryIntentActivities(cameraEditIntent, 0) }.getOrDefault(emptyList())
         .filterNot { isAllowedEditor(it.activityInfo.packageName) }
         .map {
             ComponentName(
@@ -171,13 +171,6 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
             }
     }
 
-    val excludedIntents = buildList {
-        addAll(editMatches)
-        addAll(genericEditMatches)
-        addAll(cameraEditMatches)
-        addAll(specificVideoEditorMatches)
-    }.distinct()
-        
     //val baseIntent = candidateIntents.firstOrNull()
     val baseIntent = editIntent
 
@@ -205,7 +198,12 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
             if (context !is Activity) {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, excludedIntents)
+            putExtra(Intent.EXTRA_EXCLUDE_COMPONENTS, buildList {
+                addAll(editMatches)
+                addAll(genericEditMatches)
+                addAll(cameraEditMatches)
+                addAll(specificVideoEditorMatches)
+            }.distinct())
         }
 
         val launched = runCatching {
