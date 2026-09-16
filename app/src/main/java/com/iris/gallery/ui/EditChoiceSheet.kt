@@ -181,8 +181,6 @@ fun launchExternalEditor(context: Context, image: MediaImage) {
             context.getString(R.string.edit_with_external_title)
         }
 
-        // First element is baseIntent, remove it with drop(1)
-        val extraIntents = candidateIntents.drop(1)
         val alternateIntents = listOf(
             genericEditIntent,
             cameraEditIntent,
